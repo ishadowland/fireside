@@ -13,7 +13,7 @@ This is the IPD-style Plan Decision Check Point. Before Phase 2 (real developmen
 - [ ] `docs/design/03-protocol.md` — WS frames, REST routes, error codes
 - [ ] `docs/design/04-state-machines.md` — room/participant/agent/workspace lifecycles
 - [ ] `docs/adr/0001-0012-*.md` — 12 architectural decisions recorded
-- [ ] `docs/rfc/phase-1-mvp.md` — Sprint 0 plan with hard 3-day deadline
+- [ ] `docs/rfc/phase-1-mvp.md` — Sprint 0 plan with hard 1-day deadline
 
 ## Scope clarity
 
@@ -68,7 +68,7 @@ This is the IPD-style Plan Decision Check Point. Before Phase 2 (real developmen
 If any of these are true, **do not start coding**:
 
 - ❌ "I'll figure it out as I go" → design docs are placeholders
-- ❌ "The deadline is loose" → no hard Sprint 0 deadline
+- ❌ "The deadline is loose" → no hard Sprint 0 deadline (must be 1 day per RFC)
 - ❌ "I have 3 different auth schemes in mind" → design doc not pinned
 - ❌ "Tests can come later" → CI workflow not configured
 - ❌ "I'll write docs after the code" → this checklist skipped

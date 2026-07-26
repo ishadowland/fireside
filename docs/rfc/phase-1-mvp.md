@@ -4,11 +4,11 @@
 - **Author**: project owner + Hermes
 - **Created**: 2026-07-26
 - **Target start**: when owner signals "go"
-- **Hard deadline**: 3 days from "go" → hello-world end-to-end
+- **Hard deadline**: 1 day from "go" → hello-world end-to-end
 
 ## Goal
 
-In 3 days, stand up the minimum backend skeleton that proves the design docs are implementable:
+In 1 day, stand up the minimum backend skeleton that proves the design docs are implementable:
 
 1. A single Go process serves REST + WS on one port.
 2. Postgres + golang-migrate + sqlc compile and a single migration applies.
@@ -57,18 +57,18 @@ fireside/
     └── rfc/
 ```
 
-## Sprint 0 task breakdown
+## Sprint 0 task breakdown (1 day, timeboxed slots)
 
-| Day | Task | Acceptance |
+| Slot | Task | Acceptance |
 |---|---|---|
-| 1 | `go mod init`, Gin boot, `/healthz` returns 200 | `curl localhost:8080/healthz` → 200 |
-| 1 | Postgres via docker-compose, golang-migrate applies `0001_init.sql` | `make db.up` succeeds, `psql` shows tables |
-| 1 | sqlc generates `internal/store/`, `InsertUser/GetUserByPhone` callable | unit test passes |
-| 2 | `internal/auth/` — HS256 JWT issue + validate | unit test passes (sign → parse → verify roundtrip) |
-| 2 | `POST /v1/auth/login` accepts `{phone, code}`, returns JWT | `curl` with `1234` code returns token |
-| 2 | `internal/ws/` upgrader, first-frame router reads `auth.hello`, validates JWT, replies `auth.welcome` | `wscat` connects, sends frame, gets welcome |
-| 3 | Android project scaffold (Gradle, Compose, OkHttp WebSocket) | `./gradlew assembleDebug` succeeds |
-| 3 | `ConnectActivity` opens WS, sends `auth.hello`, shows status | emulator → app shows "✅ connected" |
+| Morning AM | `go mod init`, Gin boot, `/healthz` returns 200 | `curl localhost:8080/healthz` → 200 |
+| Morning AM | Postgres via docker-compose, golang-migrate applies `0001_init.sql` | `make db.up` succeeds, `psql` shows tables |
+| Morning AM | sqlc generates `internal/store/`, `InsertUser/GetUserByPhone` callable | unit test passes |
+| Midday | `internal/auth/` — HS256 JWT issue + validate | unit test passes (sign → parse → verify roundtrip) |
+| Midday | `POST /v1/auth/login` accepts `{phone, code}`, returns JWT | `curl` with `1234` code returns token |
+| Afternoon | `internal/ws/` upgrader, first-frame router reads `auth.hello`, validates JWT, replies `auth.welcome` | `wscat` connects, sends frame, gets welcome |
+| Afternoon | Android project scaffold (Gradle, Compose, OkHttp WebSocket) | `./gradlew assembleDebug` succeeds |
+| Evening | `ConnectActivity` opens WS, sends `auth.hello`, shows status | emulator → app shows "✅ connected" |
 
 ## Hard exit criteria (PDCP self-check)
 
@@ -91,6 +91,7 @@ Phase 1 only graduates to Phase 2 when ALL of these are true:
 | Postgres not installed locally | Provide `docker-compose.yml` for `postgres:16` |
 | WebSocket first-frame timing (5s window) | Server logs a warning if `auth.hello` is late; closed connection counted as metric |
 | JWT secret in env | Document `.env.example`; production uses systemd `Environment=` |
+| 1-day deadline is aggressive | Owner skips scope if a slot blows past (mark as `deferred` in STATUS, never block Sprint 0 exit on perfection) |
 
 ## Dependencies added
 
@@ -122,3 +123,7 @@ This RFC explicitly defers the following to Sprint 1+:
 This RFC is reviewed by the project owner against `docs/reviews/pdcp-checklist.md`. No external review needed for Phase 1 — it's a wiring exercise.
 
 Once "Go" is signaled, this RFC moves to "Implementing" status and `STATUS.md` is updated.
+
+## Cadence note
+
+Daily status cron (`fireside-daily-status.py`) runs every day at 22:00 local. It diffs the repo HEAD against the last seen value and only emits a message when something changed. Silent on idle days.

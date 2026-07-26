@@ -18,7 +18,7 @@ Fireside is in the **concept → plan** handoff of an IPD-style workflow. All 25
 
 ## What's next (waiting for "Go")
 
-When the owner signals "start Sprint 0", the next 3 days deliver:
+When the owner signals "start Sprint 0", the next 1 day delivers:
 
 - Gin + Gorilla WS single-port boot
 - Postgres + golang-migrate + sqlc wired up
@@ -45,7 +45,7 @@ If you spot a problem with a locked decision, **open an issue**, don't silently 
 
 ## Cadence
 
-- Owner publishes a `STATUS.md` update weekly (Sundays 22:00 local, via scheduled cron)
+- Owner publishes a `STATUS.md` update daily (every day at 22:00 local, via scheduled cron)
 - Each update summarizes: what shipped, what's blocked, what's next
 - Phase transitions require the corresponding RFC + checklist to be ticked
 
