@@ -455,7 +455,13 @@ GET /v1/rooms/{room_id}/messages?before={msg_id}&limit=50
 - 实现位置:`internal/routing/agent_decision.go`(单一决策入口)
 
 **Q3**: Agent 长时间响应(超过 60s)在 UI 上怎么呈现?
-- 不打 typing indicator(MVP 简单)
-- 实时 stream token(MVP 增强,但需 HTTP chunked + WS 二通道)
+
+**已决议(2026-07-26)**: **占位消息 + 删除-新建模式**(复用 02-Q3 tool agent 占位架构,扩展到所有 agent 类型)
+- 流程:msg.send → 写占位 msg("⏳ <agent> 正在思考...")→ broadcast → ack → 后台 goroutine 调 driver(60s timeout)→ 成功后写新 msg + 软删占位
+- 失败:写错误 msg + 软删占位
+- 客户端时间轴:用户发言 → 占位"⏳" → 占位消失 → agent 完整回复
+- 新增字段:`Message.IsPlaceholder`(bool),`Message.DeletedAt`(*time.Time)
+- 新增帧:`msg.deleted`(payload: room_id, msg_id, reason)
+- 不做流式 token(MVP 工作量大,异步场景收益小)
 
 回完这 3 个,我画最后一篇 `04-state-machines.md`。
