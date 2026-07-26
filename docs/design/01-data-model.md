@@ -485,9 +485,21 @@ import (
 - **不影响** Lobster agent(它走自己的 `LobsterAgentConfig.BackendURL` + agent driver)
 - **不影响** Custom agent(它走 LLM API 直调)
 
-**Q2**: Custom agent 的 memory 存储位置?
-- 数据库(简单,损失灵活性)
-- 文件系统(灵活,lobster agent 可直接读)
+**Q2 ✅** Custom agent memory = 文件系统
+**Q3**: RaiseHand 是否需要"超时自动拒绝"?
+- 自动清:MVP 简化,大厅保持最简;但 host 失去"待办提醒"
+- 不清:多一份维护负担
+
+**已决议(2026-07-26)**: **文件系统**(路径 `/var/fireside/agents/<agent_id>/memory/`)
+- 理由:lobster agent(OpenClaw/Hermes)原生读文件系统,零适配
+- MVP 单租户,无多实例文件同步问题
+- 文件结构:
+  ```
+  facts.json           # 长期事实(用户偏好 / 项目术语)
+  conversations/       # 历史快照(每房间一份 markdown)
+  index.json           # 索引(房间 → 文件映射)
+  ```
+- 由 Fireside 服务端管理目录生命周期(agent 创建/删除时建/清)
 
 **Q3**: RaiseHand 是否需要"超时自动拒绝"?
 
