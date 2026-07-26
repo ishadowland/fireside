@@ -56,6 +56,8 @@ Final naming matrix:
 | Tagline (EN) | "Async roundtable with AI seats." |
 | Tagline (中) | "给 AI 一个座位的圆桌" |
 | Slogan (中) | 「圍爐取暖，鴻箋傳心。」 |
+| Workspace backend | go-git/go-git/v5 embedded (no external git service) |
+| Workspace summary agent | host-specified custom agent (no server-side LLM key) |
 
 ## Phase 6: Repository Bootstrap
 

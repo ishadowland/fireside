@@ -171,10 +171,15 @@ android/
   - `WorkspaceService.Create(roomID)` — git init bare repo
   - `WorkspaceService.CreateBranch(workspaceID, agentID)` — 给每个 agent 独立 branch
   - `WorkspaceService.Commit(workspaceID, agentID, file, content)` — agent 提交
-  - `WorkspaceService.Merge(workspaceID)` — 合并所有 unmerged branches,生成 diff
+  - `WorkspaceService.Merge(workspaceID)` — 合并所有 unmerged branches
+  - `WorkspaceService.GenerateSummary(workspaceID, agentID)` — 调用指定 custom agent 生成 diff 摘要
 - 文件存储:`/var/fireside/workspaces/<room_id>/.git`
 - **依赖**:`go-git` + `sergi/go-diff` + `yuin/goldmark`
 - **不依赖** 任何外部 git CLI,纯 Go 实现
+- **不依赖** server 侧 LLM API key(diff 摘要由 host 指定的 custom agent 生成,复用 `internal/agents` 的 driver)
+- 智能定时触发:每个 workspace 一个 goroutine 监控"agent 静默 N 秒 + 至少 1 个 unmerged"条件
+  - 人类聊天不影响计时(`participant.message` 事件不重置 workspace timer)
+  - agent `workspace.commit` 事件重置 workspace timer
 
 ### `internal/auth`
 - JWT 签发/校验(用 `golang-jwt/jwt/v5`)

@@ -50,6 +50,10 @@ A **Clubhouse-style async roundtable** where a host can pull in humans and AI ag
 | D19 | Archive agent | When triggered, reads full history, emits structured markdown summary with timestamps + speaker map. Original messages cleared post-archive. | 2026-07-26 |
 | D20 | Lobster security | MVP: trust model. Phase 2: Linux namespace isolation. | 2026-07-26 |
 | D21 | Name revision | Renamed 围炉夜话 → **围炉鸿笺**; added slogan **「圍爐取暖，鴻箋傳心。」**. Historical archive (`docs/conversations/2026-07-26-01-original-request.md`) retains original wording for fidelity. | 2026-07-26 |
+| D22 | Workspace scope | Per-room (not tenant-wide). Each room optionally mounts one workspace, archived with the room. | 2026-07-26 |
+| D23 | Workspace auto-merge | Smart timer — triggers when `workspace_auto_merge_seconds` (default 30) elapse since last agent commit AND ≥1 branch HasUnmerged. Human chat does NOT reset the timer. `0` disables auto-merge (manual only). | 2026-07-26 |
+| D24 | Workspace diff summary | Reuse host-specified custom agent (no server-side LLM API key required). Falls back to static diff stats if no agent configured or agent call fails. | 2026-07-26 |
+| D25 | Git backend | `go-git/go-git/v5` embedded library (NOT Gitness — that project was archived/absorbed into Harness commercial). No external git service deployed. | 2026-07-26 |
 
 ## Open / Deferred Items
 

@@ -217,14 +217,19 @@
             │ 第一个 agent 上麦并 commit
             ▼
    ┌──────────────────┐
-   │  active          │ (有 branches + commits)
+   │  active          │ (有 branches + commits;自动定时器监控)
    └────────┬─────────┘
-            │ host 触发 workspace.merge
+            │ host 触发 OR 自动定时(agent 静默 30s + ≥1 unmerged)
             ▼
    ┌──────────────────┐
-   │  merging         │ ─── 失败(冲突) ──► conflict (host 可重试)
+   │  merging_git     │ ─── 失败(冲突) ──► conflict (host 可重试)
    └────────┬─────────┘
             │ 成功
+            ▼
+   ┌──────────────────┐
+   │ merging_summary  │ ─── 摘要 agent 失败 ──► 降级到 merged(静态 diff)
+   └────────┬─────────┘
+            │ 摘要完成
             ▼
    ┌──────────────────┐
    │  merged          │ (合并记录写入)
@@ -244,10 +249,11 @@
 | 状态 | 允许操作 |
 |---|---|
 | `initialized` | agent 上麦 + commit |
-| `active` | agent 上麦 + commit + host 触发 merge |
-| `merging` | 只读,等待合并结果 |
-| `conflict` | host 可重试 merge / 强制跳过冲突文件 |
-| `merged` | 自动回到 active(若有未合并 commits) |
+| `active` | agent 上麦 + commit + host 触发 merge;自动定时器监控 |
+| `merging_git` | git merge 进行中,只读 |
+| `merging_summary` | git merge 成功,正在调用摘要 agent 生成 AI 解读 |
+| `merged` | 合并完成,自动回到 active(若有未合并 commits) |
+| `conflict` | git merge 失败,host 可重试或跳过冲突 |
 | `archived` | 只读,跟随 room archive 永久保存 |
 
 ### 关键守卫
@@ -255,10 +261,12 @@
 | From → To | 守卫 |
 |---|---|
 | (无) → initialized | 房间存在且 workspace_enabled=true |
-| active → merging | actor == host;至少 1 个 branch HasUnmerged=true |
-| merging → merged | 所有分支合并成功 |
-| merging → conflict | 任一分支合并失败 |
-| conflict → merging | host 显式重试 |
+| active → merging_git | actor == host 或自动定时器触发;≥1 branch HasUnmerged=true |
+| merging_git → merging_summary | 所有分支合并成功 |
+| merging_git → conflict | 任一分支合并失败 |
+| merging_summary → merged | 摘要 agent 成功(返回 HumanReadable);或降级(无 agent)直接 merged |
+| merging_summary → merged | 摘要 agent 失败 → 降级到静态 diff,仍 merged(记 warning log) |
+| conflict → merging_git | host 显式重试 |
 | 任意 → archived | room.ended |
 
 ### Branch 生命周期
@@ -266,6 +274,16 @@
 - Branch 在 agent **首次 commit 时创建**(懒加载,不上麦不创建)
 - Branch 在 agent **下麦时不删除**(重新上麦后可继续编辑)
 - Branch 在 workspace **archived 时保留**(随 git repo 一起只读)
+
+### 自动定时触发器
+
+每个活跃 workspace 一个 goroutine 监听:
+- `Room.Config.WorkspaceAutoMergeSeconds == 0` → **不启动定时器**(纯手动)
+- 否则:
+  - **重置条件**:`workspace.commit` 事件(任意 agent)
+  - **不重置条件**:`msg.send`(人类聊天)、`participant.join/leave`
+  - **触发条件**:从最后一次重置起 ≥ N 秒 **且** ≥1 branch `HasUnmerged=true`
+  - 触发后调用 `WorkspaceService.Merge`,进入 `merging_git`
 
 ## 7. 用户登录态
 

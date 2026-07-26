@@ -300,7 +300,8 @@ agent 输出的消息走**普通 `msg.created` 流程**,但 `sender.kind = "agen
   "type": "workspace.merge",
   "id": "client-uuid-1241",
   "payload": {
-    "room_id": "01HXY..."
+    "room_id": "01HXY...",
+    "summary_agent_id": "summarizer"   // 可选:覆盖 room.config.workspace_summary_agent_id
   }
 }
 ```
@@ -310,11 +311,14 @@ agent 输出的消息走**普通 `msg.created` 流程**,但 `sender.kind = "agen
 2. 收集所有 `HasUnmerged=true` 的 branches
 3. 串行 `go-git merge --no-ff` 到 main branch
 4. 失败 → 标记 `HasConflicts=true`,记录冲突文件
-5. 生成 `MergeDiffSummary`(用 sergi/go-diff + goldmark)
-6. 写 `WorkspaceMerge` 记录
-7. 重置所有 branches 的 `HasUnmerged=false`
-8. 推一条 `msg.created`(system 类型)到房间,内容是 diff 摘要
-9. 广播 `workspace.state`
+5. 生成静态 diff stats(用 sergi/go-diff + goldmark)
+6. **调用指定 custom agent 生成可读摘要**(复用 `internal/agents.Driver`)
+   - 若 `summary_agent_id` 为空,使用 `room.config.workspace_summary_agent_id`
+   - 若两者都为空,**只写静态 diff,不生成 AI 摘要**(降级行为)
+7. 写 `WorkspaceMerge` 记录(含 `generated_by_agent_id`)
+8. 重置所有 branches 的 `HasUnmerged=false`
+9. 推一条 `msg.created`(system 类型)到房间,内容是 AI 摘要 + 静态统计
+10. 广播 `workspace.state`
 
 ### 8. 工作区状态广播:`workspace.state`
 

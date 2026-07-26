@@ -76,6 +76,10 @@ type RoomConfig struct {
     ArchiveOnEnd      bool `json:"archive_on_end"`       // 结束时拉纪要 agent
     DMInRoomAllowed   bool `json:"dm_in_room_allowed"`   // MVP=false
     WorkspaceEnabled  bool `json:"workspace_enabled"`    // 是否挂载共享 MD 工作区
+
+    // === Workspace 相关 ===
+    WorkspaceAutoMergeSeconds int    `json:"workspace_auto_merge_seconds"` // 0 = 仅手动;默认 30
+    WorkspaceSummaryAgentID   string `json:"workspace_summary_agent_id"`    // 哪个 custom agent 生成 diff 摘要
 }
 ```
 
@@ -392,11 +396,13 @@ type WorkspaceMerge struct {
 }
 
 type MergeDiffSummary struct {
-    TotalFilesChanged int      `json:"total_files_changed"`
-    TotalAdditions    int      `json:"total_additions"`
-    TotalDeletions    int      `json:"total_deletions"`
-    PerBranchCommits  map[string]int `json:"per_branch_commits"` // branch → commit count
-    HumanReadable     string   `json:"human_readable"`         // AI 生成的摘要 (Phase 2)
+    TotalFilesChanged    int             `json:"total_files_changed"`
+    TotalAdditions       int             `json:"total_additions"`
+    TotalDeletions       int             `json:"total_deletions"`
+    PerBranchCommits     map[string]int  `json:"per_branch_commits"`  // branch → commit count
+    HumanReadable        string          `json:"human_readable"`       // AI 生成的摘要 (Phase 2)
+    GeneratedByAgentID   string          `json:"generated_by_agent_id"` // 哪个 custom agent 生成的
+    GeneratedAt          *time.Time      `json:"generated_at,omitempty"`
 }
 ```
 
@@ -450,20 +456,16 @@ import (
 - host 创建房间时勾选,事后**不可改**(避免 workspace 数据迁移)
 - room ended 时 workspace **保留为只读归档**(随 archive 一起保存)
 
+### 已决议(2026-07-26)
+
+- **W1 房间级 / 租户级** → **房间级**(每房间独立 repo,room ended 后归档)
+- **W2 触发合并 UX** → **智能定时**(`workspace_auto_merge_seconds`,默认 30 秒)
+- **W2.2 静默定义** → **Agent workspace 静默**(人类聊天不打断合并计时)
+- **W3 Diff 摘要生成** → **复用 custom agent**(由 host 在 `workspace_summary_agent_id` 指定,**不维护 server 侧 LLM API key**)
+
 ### 待审阅的开放问题
 
-**W1**: workspace 是房间级别,还是租户级别?
-- 房间级(默认推荐):每房间独立 repo,room ended 后归档
-- 租户级:所有房间共享一个 repo,跨房间协作
-
-**W2**: 触发合并的 UX?
-- 手动:Android App 房间界面加"合并"按钮 + REST endpoint
-- 自动定时:每 N 分钟自动合并
-- 基于信号:agent 调特定 tool 时触发
-
-**W3**: Diff 摘要生成方式?
-- 静态:纯文本 diff 统计 (Phase 1)
-- AI 生成:LLM 解读 diff 输出人类可读摘要 (Phase 2)
+(暂无)
 
 ---
 
