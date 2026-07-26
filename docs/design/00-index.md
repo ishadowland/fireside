@@ -16,6 +16,7 @@
 | 04 | State Machines | ✅ Draft v0.1 | Room / Participant / Agent lifecycle diagrams |
 | 05 | Security Model | ⏳ pending | Auth, TLS, room access control, agent sandboxing |
 | 06 | Deployment | ⏳ pending | systemd unit, Nginx config, VPS provisioning |
+| 07 | Three-Sages Coalition (EVA MAGI) | 📝 drafted | MVP composite-agent design: D22/D23/D24/D25 — roles, R1→R2→R3→Synth protocol, voting threshold, room announcement |
 
 ## Reference
 
