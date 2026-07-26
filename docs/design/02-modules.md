@@ -306,9 +306,35 @@ android/
 - 优势:Android 端只配 1 个 base URL,部署/证书/防火墙都简单
 - 单端口实现需 Gin `readTimeout=0` 关闭 HTTP read timeout(WS 长连接)
 
+**Q1 ✅** HTTP+WS 单端口
+
 **Q2**: Android 端是否需要**离线消息缓存**(Room 关闭 App 后还能看历史)?
-- MVP 我倾向**不做**(房间结束后本地缓存意义不大)
-- 但退出登录时,本地数据库要不要清?
+
+**已决议(2026-07-26)**: **做完整本地缓存 + 用户可控导出/清除**
+- 存储方式:Android Room DB,每个房间一个表(分桶)
+- 用户行为:
+  - **退出登录 → 默认清空所有本地缓存**(防泄漏)
+  - 设置里有"清除某个房间的本地缓存"按钮
+  - 设置里有"导出某个房间为 JSON/Markdown"按钮
+- 服务端房间 ended 后,**客户端仍可见已缓存**(直到用户主动清)
+- **语义变化**:严格意义上不再"阅后即焚",但服务端视角仍保证
+  - 服务端不持久
+  - 用户主动导出 = 主动把消息带出 Fireside,这是用户的选择
+  - 与"围炉鸿笺"调性自洽:用户决定纸笺的去留
+
+### 数据模型(客户端 Room DB)
+```
+表 messages
+  room_id, msg_id, sender_kind, sender_id, sender_name,
+  content, content_type, mentions, reply_to_id, created_at
+
+每房间独立表(分桶),房间退出/创建时自动建/清表
+```
+
+### 触发同步
+- WebSocket `msg.created` 帧 → 写入本地
+- App 启动时拉取 `GET /v1/rooms/<id>/messages?after=<last_msg_id>`(可选)
+- 重连时用 session.resume + last_msg_id 补齐
 
 **Q3**: Tool agent 的 webhook 是 **同步调用** 等返回再发消息,还是 **异步触发** (后台跑完再发)?
 - 同步:用户立刻看到结果,但 WS 阻塞
