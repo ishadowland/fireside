@@ -320,21 +320,29 @@ android/
 - **语义变化**:严格意义上不再"阅后即焚",但服务端视角仍保证
   - 服务端不持久
   - 用户主动导出 = 主动把消息带出 Fireside,这是用户的选择
-  - 与"围炉鸿笺"调性自洽:用户决定纸笺的去留
+  **Q2 ✅** Android 完整本地缓存 + 用户可控导出/清除
 
-### 数据模型(客户端 Room DB)
-```
-表 messages
-  room_id, msg_id, sender_kind, sender_id, sender_name,
-  content, content_type, mentions, reply_to_id, created_at
+  ### 数据模型(客户端 Room DB)
+  ```
+  表 messages
+    room_id, msg_id, sender_kind, sender_id, sender_name,
+    content, content_type, mentions, reply_to_id, created_at
 
-每房间独立表(分桶),房间退出/创建时自动建/清表
-```
+  每房间独立表(分桶),房间退出/创建时自动建/清表
+  ```
 
-### 触发同步
-- WebSocket `msg.created` 帧 → 写入本地
-- App 启动时拉取 `GET /v1/rooms/<id>/messages?after=<last_msg_id>`(可选)
-- 重连时用 session.resume + last_msg_id 补齐
+  ### 触发同步
+  - WebSocket `msg.created` 帧 → 写入本地
+  - App 启动时拉取 `GET /v1/rooms/<id>/messages?after=<last_msg_id>`(可选)
+  - 重连时用 session.resume + last_msg_id 补齐
+
+  **Q3**: Tool agent 的 webhook 是 **同步调用** 等返回再发消息,还是 **异步触发** (后台跑完再发)?
+
+  **已决议(2026-07-26)**: **异步 + 占位消息**
+  - 流程:WS 收到 @tool → 立即 ACK + 写"⏳ 处理中..."占位 msg + 广播 → 后台 goroutine 调 webhook(30s timeout)→ 完成后写新 msg + 删除占位
+  - 失败:写 "❌ agent 暂时不可用: <错误摘要>" msg
+  - 优势:WS 不被阻塞,UX 流畅,失败可优雅降级
+  - 同步被否决:30s 阻塞会让 WS 连接假死
 
 **Q3**: Tool agent 的 webhook 是 **同步调用** 等返回再发消息,还是 **异步触发** (后台跑完再发)?
 - 同步:用户立刻看到结果,但 WS 阻塞
