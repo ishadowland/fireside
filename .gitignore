@@ -1,0 +1,27 @@
+# Go
+/bin/
+/fireside
+/fireside-server
+/fireside-cli
+*.test
+*.out
+/vendor/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Secrets / local config
+.env
+.env.local
+*.pem
+*.key
+config.local.yaml
+
+# Build artifacts
+/dist/
+/tmp/
