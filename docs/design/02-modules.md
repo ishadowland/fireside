@@ -298,9 +298,13 @@ android/
 
 ## 待你审阅的开放问题
 
-**Q1**: cmd/server 是单二进制(同时服务 HTTP + WS),还是分两个端口?
-- 单端口简单,WebSocket 用 `/ws` 路径
-- 双端口更"标准",但配置麻烦
+**Q1**: HTTP + WebSocket 单端口还是双端口?
+
+**已决议(2026-07-26)**: **单端口**(Gin 路由 + gorilla/WS 共用 8080)
+- Gin: `/ws/v1` → gorilla/WS;其他 → REST API
+- Nginx: `location /ws/ { proxy_http_version 1.1; proxy_set_header Upgrade ...; proxy_read_timeout 3600s; }`
+- 优势:Android 端只配 1 个 base URL,部署/证书/防火墙都简单
+- 单端口实现需 Gin `readTimeout=0` 关闭 HTTP read timeout(WS 长连接)
 
 **Q2**: Android 端是否需要**离线消息缓存**(Room 关闭 App 后还能看历史)?
 - MVP 我倾向**不做**(房间结束后本地缓存意义不大)
