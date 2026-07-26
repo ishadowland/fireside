@@ -75,6 +75,7 @@ type RoomConfig struct {
     AutoEndDays       int  `json:"auto_end_days"`        // 默认 0=不过期
     ArchiveOnEnd      bool `json:"archive_on_end"`       // 结束时拉纪要 agent
     DMInRoomAllowed   bool `json:"dm_in_room_allowed"`   // MVP=false
+    WorkspaceEnabled  bool `json:"workspace_enabled"`    // 是否挂载共享 MD 工作区
 }
 ```
 
@@ -341,6 +342,128 @@ CREATE INDEX idx_archive_created ON archives(created_at DESC);
 - 房间未结束时的"在线状态"(WebSocket 连接自带)
 - 消息已读/未读(异步模式下无意义)
 - 编辑历史(分布式消息流禁编辑)
+
+---
+
+## 8. Workspace（房间共享文档工作区）
+
+> **新增 2026-07-26** — Agent 协作编辑 MD 文档的轻量方案。
+> 后端实现:**`go-git/go-git/v5` 内嵌库**,不部署独立 git 服务。
+
+### 设计原则
+- **每房间可选挂载一个 workspace**(host 创建房间时决定)
+- 每个被拉入的 agent 自动获得一个**独立 branch**(避免并发写冲突)
+- 协作通过**手动触发合并**完成,合并后生成结构化 diff 摘要
+- **MVP 不做实时协同**(类似 Google Docs),各 agent 在自己 branch 上独立编辑
+
+### 数据模型
+
+```go
+type Workspace struct {
+    ID              string    `json:"id"`            // ULID
+    RoomID          string    `json:"room_id"`       // FK Room.ID (1:1, 一个房间最多一个工作区)
+    RepoPath        string    `json:"repo_path"`     // 服务端文件系统路径 (e.g. /var/fireside/workspaces/<room_id>/.git)
+    MainBranch      string    `json:"main_branch"`   // 默认 "main"
+    CreatedAt       time.Time `json:"created_at"`
+    LastMergeAt     *time.Time `json:"last_merge_at,omitempty"`
+    LastMergeCommit string    `json:"last_merge_commit,omitempty"` // SHA
+}
+
+type WorkspaceBranch struct {
+    ID             string    `json:"id"`             // ULID
+    WorkspaceID    string    `json:"workspace_id"`   // FK Workspace.ID
+    ParticipantID  string    `json:"participant_id"` // FK Participant.ID (持有该 branch 的 agent)
+    BranchName     string    `json:"branch_name"`    // "agent/<agent_id>"
+    LastCommitSHA  string    `json:"last_commit_sha"`
+    HasUnmerged    bool      `json:"has_unmerged"`   // true = 有未合并的 commit
+    CreatedAt      time.Time `json:"created_at"`
+    UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type WorkspaceMerge struct {
+    ID             string         `json:"id"`              // ULID
+    WorkspaceID    string         `json:"workspace_id"`    // FK Workspace.ID
+    MergedBranches []string       `json:"merged_branches"` // branch_name 列表
+    MergeCommitSHA string         `json:"merge_commit_sha"`
+    DiffSummary    MergeDiffSummary `json:"diff_summary"`  // 结构化 diff
+    HasConflicts   bool           `json:"has_conflicts"`
+    ConflictFiles  []string       `json:"conflict_files,omitempty"`
+    CreatedAt      time.Time      `json:"created_at"`
+}
+
+type MergeDiffSummary struct {
+    TotalFilesChanged int      `json:"total_files_changed"`
+    TotalAdditions    int      `json:"total_additions"`
+    TotalDeletions    int      `json:"total_deletions"`
+    PerBranchCommits  map[string]int `json:"per_branch_commits"` // branch → commit count
+    HumanReadable     string   `json:"human_readable"`         // AI 生成的摘要 (Phase 2)
+}
+```
+
+### 核心库依赖
+
+```go
+import (
+    "github.com/go-git/go-git/v5"          // git 操作 (clone/commit/branch/merge)
+    "github.com/sergi/go-diff/diffmatchpatch" // 文本 diff 算法
+    "github.com/yuin/goldmark"             // Markdown 解析 (生成结构化 diff)
+)
+```
+
+### 关键不变量
+
+1. **一个房间最多一个 workspace**(1:1 约束)
+2. **Branch 命名空间**:`agent/<agent_id>`(避免冲突)
+3. **agent 下麦 = 不删 branch**(可在重新上麦后继续编辑)
+4. **冲突时保留双侧**(git 标准冲突标记,不自动解决)
+5. **每次合并写一条 system message 通知房间**
+
+### 工作流
+
+```
+[Host 创建房间 + workspace=true]
+   ↓
+[Server: git init bare repo @ RepoPath]
+   ↓
+[Agent 上麦]
+   ↓
+[Server: 创建 agent/<id> branch (从 main checkout)]
+   ↓
+[Agent 通过 tool 调用: workspace.commit(file_path, content)]
+   ↓
+[Server: 写入 agent worktree + git add + commit]
+   ↓
+[Host 触发 workspace.merge]
+   ↓
+[Server:
+   1. fetch 所有 unmerged branches
+   2. 串行 git merge --no-ff (失败 → 标 conflicts)
+   3. 生成 diff summary
+   4. 写 WorkspaceMerge 记录
+   5. 推一条 system message 到房间
+]
+```
+
+### 与 Room 的关系
+
+- `Room.Config.WorkspaceEnabled bool`(新增字段)
+- host 创建房间时勾选,事后**不可改**(避免 workspace 数据迁移)
+- room ended 时 workspace **保留为只读归档**(随 archive 一起保存)
+
+### 待审阅的开放问题
+
+**W1**: workspace 是房间级别,还是租户级别?
+- 房间级(默认推荐):每房间独立 repo,room ended 后归档
+- 租户级:所有房间共享一个 repo,跨房间协作
+
+**W2**: 触发合并的 UX?
+- 手动:Android App 房间界面加"合并"按钮 + REST endpoint
+- 自动定时:每 N 分钟自动合并
+- 基于信号:agent 调特定 tool 时触发
+
+**W3**: Diff 摘要生成方式?
+- 静态:纯文本 diff 统计 (Phase 1)
+- AI 生成:LLM 解读 diff 输出人类可读摘要 (Phase 2)
 
 ---
 

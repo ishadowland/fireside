@@ -17,6 +17,7 @@ fireside/
 │   ├── ws/                 ← WebSocket hub + connection 管理
 │   ├── routing/            ← 消息路由引擎 (@ 解析、agent 触发)
 │   ├── agents/             ← Agent 适配器 (tool / custom / lobster)
+│   ├── workspace/          ← 共享 MD 工作区 (go-git 内嵌)
 │   ├── auth/               ← 手机号验证码 + JWT
 │   ├── sms/                ← 短信网关 (Twilio / 阿里云)
 │   ├── config/             ← 配置加载 (YAML)
@@ -162,6 +163,18 @@ android/
   - `LobsterDriver` — 调 Hermes/OpenClaw backend
 - **`Driver` 是可注册的**(工厂模式),启动时根据 config 注册实例
 - 配置从 `internal/store` 读
+
+### `internal/workspace`
+- **共享 MD 文档协作**(可选,房间挂载时启用)
+- 基于 `go-git/go-git/v5` 内嵌库,不部署独立 git 服务
+- 核心能力:
+  - `WorkspaceService.Create(roomID)` — git init bare repo
+  - `WorkspaceService.CreateBranch(workspaceID, agentID)` — 给每个 agent 独立 branch
+  - `WorkspaceService.Commit(workspaceID, agentID, file, content)` — agent 提交
+  - `WorkspaceService.Merge(workspaceID)` — 合并所有 unmerged branches,生成 diff
+- 文件存储:`/var/fireside/workspaces/<room_id>/.git`
+- **依赖**:`go-git` + `sergi/go-diff` + `yuin/goldmark`
+- **不依赖** 任何外部 git CLI,纯 Go 实现
 
 ### `internal/auth`
 - JWT 签发/校验(用 `golang-jwt/jwt/v5`)

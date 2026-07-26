@@ -201,7 +201,73 @@
 - `failed` 后,房间状态保持 `archiving`,host 可手动重试或强制 end
 - Archive 记录**与 room 解耦**,room 删除后 archive 仍可查
 
-## 6. 用户登录态
+## 6. Workspace 生命周期
+
+> 新增 2026-07-26 — 共享 MD 文档工作区
+
+```
+   ┌──────────────────┐
+   │ (未创建)          │
+   └────────┬─────────┘
+            │ host 创建房间 + workspace_enabled=true
+            ▼
+   ┌──────────────────┐
+   │  initialized     │ (git init bare repo, main branch 空)
+   └────────┬─────────┘
+            │ 第一个 agent 上麦并 commit
+            ▼
+   ┌──────────────────┐
+   │  active          │ (有 branches + commits)
+   └────────┬─────────┘
+            │ host 触发 workspace.merge
+            ▼
+   ┌──────────────────┐
+   │  merging         │ ─── 失败(冲突) ──► conflict (host 可重试)
+   └────────┬─────────┘
+            │ 成功
+            ▼
+   ┌──────────────────┐
+   │  merged          │ (合并记录写入)
+   └────────┬─────────┘
+            │ 继续 agent commits
+            ▼
+        active (循环)
+
+   ────────────────
+
+   当 room ended:
+        所有 workspace ──► archived (只读,与 archive 一起保存)
+```
+
+### 状态说明
+
+| 状态 | 允许操作 |
+|---|---|
+| `initialized` | agent 上麦 + commit |
+| `active` | agent 上麦 + commit + host 触发 merge |
+| `merging` | 只读,等待合并结果 |
+| `conflict` | host 可重试 merge / 强制跳过冲突文件 |
+| `merged` | 自动回到 active(若有未合并 commits) |
+| `archived` | 只读,跟随 room archive 永久保存 |
+
+### 关键守卫
+
+| From → To | 守卫 |
+|---|---|
+| (无) → initialized | 房间存在且 workspace_enabled=true |
+| active → merging | actor == host;至少 1 个 branch HasUnmerged=true |
+| merging → merged | 所有分支合并成功 |
+| merging → conflict | 任一分支合并失败 |
+| conflict → merging | host 显式重试 |
+| 任意 → archived | room.ended |
+
+### Branch 生命周期
+
+- Branch 在 agent **首次 commit 时创建**(懒加载,不上麦不创建)
+- Branch 在 agent **下麦时不删除**(重新上麦后可继续编辑)
+- Branch 在 workspace **archived 时保留**(随 git repo 一起只读)
+
+## 7. 用户登录态
 
 ```
    ┌──────────────┐
@@ -222,7 +288,7 @@
 - "登录态"在客户端 = 持有有效 JWT
 - 服务端不维护"在线用户列表"(WebSocket 连接自带)
 
-## 7. 端到端时序:完整一次讨论
+## 8. 端到端时序:完整一次讨论
 
 ```
 t=0   Host 创建房间 "周会-2026-07-26"

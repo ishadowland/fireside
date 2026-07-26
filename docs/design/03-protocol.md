@@ -122,6 +122,9 @@ interface ErrorPayload {
 | `hand.update` | S→C | 举手状态变化(推送大厅里的所有人) |
 | `agent.trigger` | C→S | 主动触发工具型 agent |
 | `agent.respond` | S→C | agent 回复(走 msg.created 流程,但 sender_kind=agent) |
+| `workspace.commit` | C→S | agent 提交 MD 文件变更 |
+| `workspace.merge` | C→S | host 触发合并所有 unmerged branches |
+| `workspace.state` | S→C | 工作区状态变化(branch 新增/commit/merge) |
 
 ## 关键帧详细格式
 
@@ -258,6 +261,77 @@ agent 输出的消息走**普通 `msg.created` 流程**,但 `sender.kind = "agen
       "content_type": "text",
       "mentions": [],
       "created_at": "2026-07-26T15:01:00Z"
+    }
+  }
+}
+```
+
+### 6. Agent 提交工作区变更:`workspace.commit`
+
+仅当房间 `workspace_enabled=true` 且调用方是 on_stage agent 时合法。
+
+```json
+{
+  "type": "workspace.commit",
+  "id": "client-uuid-1240",
+  "payload": {
+    "room_id": "01HXY...",
+    "file_path": "draft/section-1.md",
+    "content": "# 需求澄清\n\n## 目标\n...",
+    "commit_message": "初步草拟需求澄清章节"
+  }
+}
+```
+
+**服务端处理**:
+1. 验证 sender 是 room 的 on_stage agent participant
+2. 验证 `workspace_enabled=true`
+3. 写入 agent 的 worktree
+4. `go-git add` + `commit`(author = agent name)
+5. 更新 `WorkspaceBranch.LastCommitSHA` + `HasUnmerged=true`
+6. 广播 `workspace.state`
+
+### 7. Host 触发合并:`workspace.merge`
+
+仅 host 可触发。
+
+```json
+{
+  "type": "workspace.merge",
+  "id": "client-uuid-1241",
+  "payload": {
+    "room_id": "01HXY..."
+  }
+}
+```
+
+**服务端处理**:
+1. 验证 sender == host
+2. 收集所有 `HasUnmerged=true` 的 branches
+3. 串行 `go-git merge --no-ff` 到 main branch
+4. 失败 → 标记 `HasConflicts=true`,记录冲突文件
+5. 生成 `MergeDiffSummary`(用 sergi/go-diff + goldmark)
+6. 写 `WorkspaceMerge` 记录
+7. 重置所有 branches 的 `HasUnmerged=false`
+8. 推一条 `msg.created`(system 类型)到房间,内容是 diff 摘要
+9. 广播 `workspace.state`
+
+### 8. 工作区状态广播:`workspace.state`
+
+```json
+{
+  "type": "workspace.state",
+  "ts": 1722000000000,
+  "payload": {
+    "room_id": "01HXY...",
+    "event": "branch_committed",     // branch_committed | merged | conflict
+    "branch_name": "agent/scribe",
+    "commit_sha": "abc1234",
+    "merge_summary": {                // 仅 event=merged 时填充
+      "total_files_changed": 3,
+      "total_additions": 42,
+      "total_deletions": 18,
+      "merged_branches": ["agent/scribe", "agent/researcher"]
     }
   }
 }
