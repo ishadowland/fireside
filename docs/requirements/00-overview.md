@@ -54,6 +54,10 @@ A **Clubhouse-style async roundtable** where a host can pull in humans and AI ag
 | D23 | Workspace auto-merge | Smart timer — triggers when `workspace_auto_merge_seconds` (default 30) elapse since last agent commit AND ≥1 branch HasUnmerged. Human chat does NOT reset the timer. `0` disables auto-merge (manual only). | 2026-07-26 |
 | D24 | Workspace diff summary | Reuse host-specified custom agent (no server-side LLM API key required). Falls back to static diff stats if no agent configured or agent call fails. | 2026-07-26 |
 | D25 | Git backend | `go-git/go-git/v5` embedded library (NOT Gitness — that project was archived/absorbed into Harness commercial). No external git service deployed. | 2026-07-26 |
+| D26 | Three-Sages (EVA MAGI) | Composite agent `kind='coalition'` binding 3 existing agents as MELCHIOR / BALTHASAR / CASPER (EVA Magi 三节点). Default role prompts shipped; user-editable. Renders as single room participant; @-mention triggers 3-round hybrid protocol. | 2026-07-26 |
+| D27 | Voting threshold | Normal: 2:1 majority. Extreme: 3:0 unanimous. Extreme triggers: any node `extreme` flag, irreversible-action keyword regex (configurable), host/admin explicit `critical` tag. | 2026-07-26 |
+| D28 | Conflict as system foundation | Do not pursue single "optimal" answer. Three-node disagreement is normal, not failure. Majority decisions are reported **with** the dissent (2:1 not laundered into 3:0). Extreme-decision 3:0 deadlock → correct behavior is **suspend and request human intervention**, not majority fall-through. | 2026-07-26 |
+| D29 | Room global prompt (announcement) | `rooms.announcement TEXT` (≤500 chars, default empty). Host/admin editable, others read-only. Injected at top of every agent prompt: `[room announcement] + [agent role prompt] + [agent persona prompt] + [user message]`. UI: sticky bar at room top + ✏️ edit button. Live debate does not re-roll on announcement change; affected rounds use the new value from the next round onward. | 2026-07-26 |
 
 ## Open / Deferred Items
 
