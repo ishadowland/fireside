@@ -447,8 +447,12 @@ GET /v1/rooms/{room_id}/messages?before={msg_id}&limit=50
 - 服务端鉴权失败 → 发 `auth.error` + close(4401)→ 客户端弹"重新登录"
 
 **Q2**: active agent 的"插话决策"触发时机?
-- 收到新消息后(简化,MVP 我推荐)
-- 定时轮询(更智能但耗资源)
+
+**已决议(2026-07-26)**: **新消息触发 + 定时轮询双触发**(都要)
+- 双源触发都调同一个 `agent.ShouldRespond(ctx, recent_msgs)` 函数
+- 定时参数:**每 1 分钟**检查一次(每个 active agent 一个 goroutine)
+- 实现位置:`internal/routing/agent_decision.go`(单一决策入口)
+- 防刷:同一 agent 至少 30 秒内最多决策 1 次(无论哪种触发)
 
 **Q3**: Agent 长时间响应(超过 60s)在 UI 上怎么呈现?
 - 不打 typing indicator(MVP 简单)
