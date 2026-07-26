@@ -486,9 +486,7 @@ import (
 - **不影响** Custom agent(它走 LLM API 直调)
 
 **Q2 ✅** Custom agent memory = 文件系统
-**Q3**: RaiseHand 是否需要"超时自动拒绝"?
-- 自动清:MVP 简化,大厅保持最简;但 host 失去"待办提醒"
-- 不清:多一份维护负担
+**Q3 ✅** RaiseHand 超时自动拒绝 = MVP 不做
 
 **已决议(2026-07-26)**: **文件系统**(路径 `/var/fireside/agents/<agent_id>/memory/`)
 - 理由:lobster agent(OpenClaw/Hermes)原生读文件系统,零适配
@@ -501,6 +499,9 @@ import (
   ```
 - 由 Fireside 服务端管理目录生命周期(agent 创建/删除时建/清)
 
-**Q3**: RaiseHand 是否需要"超时自动拒绝"?
+**Q3 ✅** RaiseHand 超时自动拒绝 = MVP 不做
+- 后期可加 cron(5 行 SQL,不动数据模型)
+
+---
 
 回完这 3 个,我画下一篇 `02-modules.md`。
