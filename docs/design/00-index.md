@@ -10,10 +10,10 @@
 
 | # | Document | Status | Purpose |
 |---|---|---|---|
-| 01 | Data Model | ⏳ pending | Entity definitions + ER diagram + DB schema |
-| 02 | Module Layout | ⏳ pending | Backend / Android / shared packages + boundaries |
-| 03 | WebSocket Protocol | ⏳ pending | Message frame format + routing rules + error handling |
-| 04 | State Machines | ⏳ pending | Room / Participant / Agent lifecycle diagrams |
+| 01 | Data Model | ✅ Draft v0.1 | Entity definitions + ER diagram + DB schema |
+| 02 | Module Layout | ✅ Draft v0.1 | Backend / Android / shared packages + boundaries |
+| 03 | WebSocket Protocol | ✅ Draft v0.1 | Message frame format + routing rules + error handling |
+| 04 | State Machines | ✅ Draft v0.1 | Room / Participant / Agent lifecycle diagrams |
 | 05 | Security Model | ⏳ pending | Auth, TLS, room access control, agent sandboxing |
 | 06 | Deployment | ⏳ pending | systemd unit, Nginx config, VPS provisioning |
 
