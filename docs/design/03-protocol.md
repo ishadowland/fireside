@@ -439,9 +439,12 @@ GET /v1/rooms/{room_id}/messages?before={msg_id}&limit=50
 
 ## 待你审阅的开放问题
 
-**Q1**: WebSocket 鉴权用 **query string** 还是 **第一个 frame**?
-- query string:标准做法(浏览器原生支持),但 JWT 容易在 server log 泄漏
-- 第一个 frame:更安全,但浏览器不能直接连(需要先 HTTP 升级)
+**Q1**: WebSocket 鉴权用 **query string** 还是首个 frame?
+
+**已决议(2026-07-26)**: **首个 frame**(`auth.hello`)
+- 优势:JWT 不在 URL(server log 不会泄漏);重连清晰;鉴权失败可发 JSON 错误后 close
+- Android 端:OkHttp `onOpen` 时发 hello 帧,`onMessage` 第一帧期望 auth.welcome/error
+- 服务端鉴权失败 → 发 `auth.error` + close(4401)→ 客户端弹"重新登录"
 
 **Q2**: active agent 的"插话决策"触发时机?
 - 收到新消息后(简化,MVP 我推荐)
