@@ -83,22 +83,24 @@ type RoomConfig struct {
 - `Status=ended` 后,`EndedAt` 必填
 - 归档是**异步操作**:`ArchiveRef` 在归档完成后填
 
-## 3. Participant（房间参与者）
+### 3. Participant（房间参与者）
 
 这是核心的"通用参与者"模型,**人类和 Agent 共用一张表**。
+所有参与者都支持**热插拔**:运行时进出,无需重启服务。进出房间 = 上/下麦,二者是同一概念的两种表述。
 
 ```go
 type Participant struct {
     ID             string            `json:"id"`              // ULID
     RoomID         string            `json:"room_id"`         // FK Room.ID
     Kind           ParticipantKind   `json:"kind"`            // human | agent
-    StageState     StageState        `json:"stage_state"`     // on_stage | off_stage
-    JoinedAt       time.Time         `json:"joined_at"`
-    LeftAt         *time.Time        `json:"left_at,omitempty"`
+    StageState     StageState        `json:"stage_state"`     // on_stage(在房间里) | off_stage(已离房)
+    JoinedAt       time.Time         `json:"joined_at"`       // 本次进房时刻
+    LeftAt         *time.Time        `json:"left_at,omitempty"` // 本次离房时刻
+    LastSeenAt     time.Time         `json:"last_seen_at"`    // 最近状态变化
 
     // === 人类专属 ===
     UserID         *string           `json:"user_id,omitempty"`        // FK User.ID
-    OnStageAt      *time.Time        `json:"on_stage_at,omitempty"`   // 上麦时刻
+    OnStageAt      *time.Time        `json:"on_stage_at,omitempty"`    // = JoinedAt(语义保留)
 
     // === Agent 专属 ===
     AgentID        *string           `json:"agent_id,omitempty"`      // FK Agent.ID
@@ -113,8 +115,8 @@ const (
 
 type StageState string
 const (
-    StageOn   StageState = "on_stage"
-    StageOff  StageState = "off_stage"
+    StageOn   StageState = "on_stage"   // 在房间里,接收消息推送
+    StageOff  StageState = "off_stage"  // 已离房,不再接收
 )
 
 type ParticipantAgentConfig struct {
@@ -124,9 +126,14 @@ type ParticipantAgentConfig struct {
 ```
 
 **说明**:
+- **`StageState` 是单一状态**:on_stage = 在房间里(接收推送);off_stage = 已离房(不再接收)
+- **人类热插拔语义**:
+  - 进房 = 创建 participant(`stage_state=on_stage`),默认接收消息
+  - 下麦/离房 = `stage_state=off_stage`(同一次操作),记录保留用于历史
+  - 重新进房 = host `participant.pull` → 创建**新一条** participant 记录(旧的 off_stage 记录存档保留)
+- **Agent 热插拔语义**:同人类,driver 随上麦加载,随下麦(房间 ended)关闭
 - `UserID` 和 `AgentID` **二选一**(CHECK 约束)
-- 上麦 = 订阅房间消息推送;下麦 = 退订
-- Agent 的 `Mode` 和 `ContextMode` **只有上麦后才生效**
+- Agent 的 `Mode` 和 `ContextMode` **只有 on_stage 时才生效**
 
 ## 4. Agent（AI 智能体）
 
@@ -292,7 +299,7 @@ User ─────────┬───────── Participant ─�
               └── reviewed_by (User)
 
 每个 Room 必须有 1 个 Host (User)
-每个 Room 可有 0..N Participants (Human + Agent)
+每个 Room 可有 0..N Participants (Human + Agent),每个 Participant 用 StageState 单一状态
 每个 Room 可有 0..N Messages
 每个 Room 可有 0..1 Archive (触发归档后)
 每个 User 可在 Lobby 同时最多 1 个 pending RaiseHand
@@ -311,8 +318,9 @@ CREATE INDEX idx_room_status_created ON rooms(status, created_at DESC);
 -- Participant
 CREATE INDEX idx_participant_room ON participants(room_id);
 CREATE INDEX idx_participant_user_rooms ON participants(user_id) WHERE user_id IS NOT NULL;
-CREATE UNIQUE INDEX uniq_participant_room_user ON participants(room_id, user_id) WHERE user_id IS NOT NULL;
-CREATE UNIQUE INDEX uniq_participant_room_agent ON participants(room_id, agent_id) WHERE agent_id IS NOT NULL;
+-- 同一 user 在同一 room 同一时刻只能有 1 条 on_stage 记录(允许历史有 off_stage 记录)
+CREATE UNIQUE INDEX uniq_participant_room_user_active ON participants(room_id, user_id) WHERE user_id IS NOT NULL AND stage_state = 'on_stage';
+CREATE UNIQUE INDEX uniq_participant_room_agent_active ON participants(room_id, agent_id) WHERE agent_id IS NOT NULL AND stage_state = 'on_stage';
 
 -- Message
 CREATE INDEX idx_message_room_created ON messages(room_id, created_at DESC);
