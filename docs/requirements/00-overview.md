@@ -70,3 +70,9 @@ A **Clubhouse-style async roundtable** where a host can pull in humans and AI ag
 - Full-text search across archived rooms
 - Plugin marketplace
 - Agent training / fine-tuning
+
+## See Also
+
+For a consolidated snapshot of all decisions to date (with open questions and architecture choices), see:
+
+- **[`03-decision-snapshot.md`](./03-decision-snapshot.md)** — Single-document summary, ideal for review before coding begins
