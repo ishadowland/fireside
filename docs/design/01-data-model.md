@@ -170,6 +170,11 @@ type ToolAgentConfig struct {
     ToolDefinition ToolDefinition `json:"tool_definition"`
 }
 
+// 作用域说明:本配置仅用于 "tool" 类型 agent。
+// "lobster" 类型 agent 走 LobsterAgentConfig.BackendURL + internal/agents/lobster_driver.go,
+// "custom" 类型 agent 走 LLM API 直调(internal/agents/custom_driver.go)。
+// webhook 路径不会被 lobster/custom 使用。
+
 type ToolDefinition struct {
     Name        string                 `json:"name"`         // "search_web"
     Description string                 `json:"description"`
@@ -474,6 +479,11 @@ import (
 **Q1**: Tool agent 的 `Handler` 是直接 HTTP webhook,还是走消息总线?
 - webhook 简单但耦合
 - 消息总线解耦但多一层依赖
+
+**已决议(2026-07-26)**: **HTTP webhook**(MVP 简单够用)。
+- **作用域**:仅 `ToolAgentConfig.Handler` 字段
+- **不影响** Lobster agent(它走自己的 `LobsterAgentConfig.BackendURL` + agent driver)
+- **不影响** Custom agent(它走 LLM API 直调)
 
 **Q2**: Custom agent 的 memory 存储位置?
 - 数据库(简单,损失灵活性)
