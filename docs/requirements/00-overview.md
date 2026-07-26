@@ -44,11 +44,12 @@ A **Clubhouse-style async roundtable** where a host can pull in humans and AI ag
 | D13 | Business model | Open-source (MIT). No commercialization planned. | 2026-07-26 |
 | D14 | Lobby | Humans land in lobby post-login; raise-hand with optional note; host approves/rejects. | 2026-07-26 |
 | D15 | Encryption | TLS 1.3 transport minimum. Application-layer E2E deferred to Phase 2 (conflicts with archive agent readability). | 2026-07-26 |
-| D16 | Project name | **Fireside** / 围炉夜话 | 2026-07-26 |
+| D16 | Project name | **Fireside** / 围炉鸿笺 | 2026-07-26 |
 | D17 | CLI name | `fsc` | 2026-07-26 |
 | D18 | Tech stack | Go 1.22+ / Gin / sqlc / Postgres / gorilla/websocket / golang-migrate / cobra / slog | 2026-07-26 |
 | D19 | Archive agent | When triggered, reads full history, emits structured markdown summary with timestamps + speaker map. Original messages cleared post-archive. | 2026-07-26 |
 | D20 | Lobster security | MVP: trust model. Phase 2: Linux namespace isolation. | 2026-07-26 |
+| D21 | Name revision | Renamed 围炉夜话 → **围炉鸿笺**; added slogan **「圍爐取暖，鴻箋傳心。」**. Historical archive (`docs/conversations/2026-07-26-01-original-request.md`) retains original wording for fidelity. | 2026-07-26 |
 
 ## Open / Deferred Items
 

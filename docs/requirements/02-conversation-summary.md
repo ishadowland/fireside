@@ -48,13 +48,14 @@ Final naming matrix:
 | Slot | Value |
 |---|---|
 | Project | Fireside |
-| Chinese | 围炉夜话 |
+| Chinese | 围炉鸿笺 |
 | GitHub | github.com/ishadowland/fireside |
 | CLI | fsc |
 | Python pkg | (N/A — Go project) |
 | Android pkg | com.firesidechat.app |
 | Tagline (EN) | "Async roundtable with AI seats." |
 | Tagline (中) | "给 AI 一个座位的圆桌" |
+| Slogan (中) | 「圍爐取暖，鴻箋傳心。」 |
 
 ## Phase 6: Repository Bootstrap
 
