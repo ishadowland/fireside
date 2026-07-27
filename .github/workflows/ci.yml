@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: fireside
+          POSTGRES_USER: fireside
+          POSTGRES_PASSWORD: devpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fireside -d fireside"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      POSTGRES_DSN: postgres://fireside:***@localhost:5432/fireside?sslmode=disable
+      JWT_SECRET: ci-test-secret-not-for-production
+      JWT_ACCESS_TTL_MIN: "15"
+      LOG_LEVEL: info
+      PORT: "8080"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Install sqlc
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+
+      - name: Install golang-migrate
+        run: |
+          curl -fsSL https://github.com/golang-migrate/migrate/releases/download/v4.17.0/migrate.linux-amd64.tar.gz \
+            | tar -xz -C /tmp
+          sudo mv /tmp/migrate /usr/local/bin/migrate
+
+      - name: sqlc verify (generated code matches queries)
+        run: sqlc vet
+
+      - name: Migrations up
+        run: make migrate.up
+
+      - name: Migrations down (round-trip)
+        run: make migrate.down
+
+      - name: go mod tidy check
+        run: go mod tidy
+        # If tidy changed anything, `git diff` would show updates; CI fails here
+        # only on `go test` failures — keeping this step as a smoke test for now.
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test -race ./...
+
+      # golangci-lint enabled once .golangci.yml is added (Sprint 0 day-of).
+      # - name: golangci-lint
+      #   uses: golangci/golangci-lint-action@v6
+      #   with:
+      #     version: latest

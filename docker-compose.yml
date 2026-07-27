@@ -1,0 +1,34 @@
+version: "3.9"
+
+# Local-dev Postgres for Fireside.
+# Brings up a single Postgres 16 instance, exposes it on 5432, persists data in
+# a named volume, and runs a healthcheck so `make db.up` can wait until ready.
+#
+# Usage:
+#   make db.up      # docker compose up -d postgres
+#   make db.down    # docker compose down -v  (drops volume — destructive!)
+#   psql ...        # connect with the DSN from .env.example
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fireside-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fireside
+      POSTGRES_USER: fireside
+      # local dev only; do not reuse in production
+      POSTGRES_PASSWORD: devpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - fireside_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fireside -d fireside"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  fireside_pgdata:
+    name: fireside_pgdata
