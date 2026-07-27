@@ -18,9 +18,13 @@ var (
 	testTTL    = 5 * time.Minute
 )
 
+func TestMain(m *testing.M) {
+	gin.SetMode(gin.TestMode)
+	m.Run()
+}
+
 func newTestServer(t *testing.T, cfg Config) *httptest.Server {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	Mount(r, cfg)
 	srv := httptest.NewServer(r)
@@ -198,11 +202,12 @@ func TestHandleConnectBadFrame(t *testing.T) {
 // Sanity: ensure Mount does not panic with a basic engine.
 func TestMountRegisters(t *testing.T) {
 	t.Parallel()
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	Mount(r, Config{JWTSecret: testSecret})
 	// Just verify the route shows up in the engine's tree — internal
-	// gin's API is stable enough that a 404-vs-handler check works:
+	// gin's API is stable enough that a 404-vs-handler check works.
+	// The handler itself will log a warning (no WS headers) but should
+	// not panic.
 	req := httptest.NewRequest(http.MethodGet, "/ws/v1/connect", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

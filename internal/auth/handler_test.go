@@ -11,9 +11,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func TestMain(m *testing.M) {
+	gin.SetMode(gin.TestMode)
+	m.Run()
+}
+
 func newTestEngine(t *testing.T) *gin.Engine {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	Mount(r, Config{
 		JWTSecret:      testSecret,

@@ -9,23 +9,13 @@ import (
 	"github.com/ishadowland/fireside/internal/auth"
 )
 
-// claimsView is the subset of auth.Claims this package needs. It avoids
-// leaking auth types beyond their validity surface.
-type claimsView = auth.Claims
-
-// validateToken wraps auth.Validate with the ws-package error contract:
-//   - jwt.ErrTokenExpired → our CodeInvalidToken
-//   - everything else      → our CodeInvalidToken or CodeInternal
-//
-// Defined here (not in auth) so the ws package owns its own error code
-// mapping and auth stays a pure crypto lib.
+// validateToken wraps auth.Validate with the ws-package error contract.
+// Both ErrTokenExpired and ErrTokenInvalid surface as CodeInvalidToken
+// to the client (per SUB-003 protocol.go); this function preserves the
+// error type so processHello can log the difference server-side.
 func validateToken(secret []byte, tokenStr string) (*auth.Claims, error) {
 	c, err := auth.Validate(secret, tokenStr)
 	if err != nil {
-		// Distinguish expired from other invalid; both surface as
-		// CodeInvalidToken to the client (per SUB-003 protocol.go)
-		// but we keep the error wrapping so processHello can log
-		// the difference server-side.
 		return nil, err
 	}
 	return c, nil

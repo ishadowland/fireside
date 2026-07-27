@@ -9,6 +9,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// ClosePolicyViolation is the RFC 6455 close code for "policy
+// violation". Per ADR-0007 (amended 2026-07-27), this is what Fireside
+// uses for every auth failure / hello timeout — the original 4001 was
+// rejected as an app-specific convention that breaks cross-client
+// handling.
+const ClosePolicyViolation = websocket.ClosePolicyViolation
+
 // Config wires the WS handler. JWTSecret and OnAuthenticated are
 // required; HelloTimeout and CheckOrigin have sane defaults.
 type Config struct {
@@ -59,11 +66,27 @@ func HandleConnect(cfg Config) gin.HandlerFunc {
 		}
 		defer func() { _ = conn.Close() }()
 
-		conn.SetReadDeadline(time.Now().Add(timeout))
+		if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+			slog.Warn("ws set read deadline failed", "err", err)
+			sendPolicyViolationClose(conn)
+			return
+		}
 		claims, code, err := processHello(conn, cfg.JWTSecret)
 		if err != nil {
-			// processHello returned a network error — conn may already be dead.
-			slog.Warn("ws processHello error", "code", code, "err", err)
+			// processHello returned a network error (timeout / read failure).
+			// code is still set (e.g. CodeHelloTimeout). Try to write an
+			// auth.error frame + 1008 close so clients see a structured
+			// reason. If WriteJSON fails the peer is gone and we just exit.
+			slog.Warn("ws processHello network error", "code", code, "err", err)
+			if werr := conn.WriteJSON(AuthError{
+				Type:  FrameTypeAuthError,
+				Code:  code,
+				Error: humanize(code),
+			}); werr != nil {
+				slog.Debug("ws auth.error write after net err failed", "err", werr)
+				return
+			}
+			sendPolicyViolationClose(conn)
 			return
 		}
 		if code != "" {
@@ -78,9 +101,7 @@ func HandleConnect(cfg Config) gin.HandlerFunc {
 				slog.Warn("ws auth.error write failed", "code", code, "err", werr)
 				return
 			}
-			if cerr := conn.Close(websocket.ClosePolicyViolation); cerr != nil {
-				slog.Warn("ws close after auth.error failed", "code", code, "err", cerr)
-			}
+			sendPolicyViolationClose(conn)
 			return
 		}
 
@@ -109,6 +130,22 @@ func HandleConnect(cfg Config) gin.HandlerFunc {
 				return
 			}
 		}
+	}
+}
+
+// sendPolicyViolationClose writes a Close frame with code 1008 (RFC 6455
+// policy violation) and then closes the underlying TCP conn. gorilla
+// v1.5.x's Conn.Close() takes no args, so we use WriteControl for the
+// Close frame and then call Close() to release the fd.
+func sendPolicyViolationClose(conn *websocket.Conn) {
+	deadline := time.Now().Add(time.Second)
+	msg := websocket.FormatCloseMessage(ClosePolicyViolation, "policy violation")
+	if err := conn.WriteControl(websocket.CloseMessage, msg, deadline); err != nil {
+		// Peer may already be gone — fall through to plain Close.
+		slog.Debug("ws write control close failed (peer likely gone)", "err", err)
+	}
+	if err := conn.Close(); err != nil {
+		slog.Debug("ws plain close failed", "err", err)
 	}
 }
 
