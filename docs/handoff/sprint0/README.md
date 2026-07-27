@@ -24,6 +24,14 @@ The three contracts only meet at two pinned interfaces:
 
 These are the only cross-package facts the three sub-contractors must agree on. Everything else (Go package layout, Android theme, test framework choice) is locally decided.
 
+## Sprint 0 scope notes (intentional divergence from locked design docs)
+
+The three subcontracts ship a **subset** of `docs/design/03-protocol.md` to keep Sprint 0 a wiring exercise. These divergences are recorded as ADRs so Sprint 1 can close them:
+
+- **`auth.hello` payload = `{type, token}` only.** `client_version` and `device_id` from the protocol doc are deferred to Sprint 1+ (Android client and server both ignore them for now; server still accepts them if present for forward compat, but does not validate). See ADR-0014 (notes block) and the existing SUB-003 protocol.go.
+- **`user_id` is `int64` in Sprint 0**, not the ULID string the design doc shows. The handoff specs (`SUB-001`, `SUB-003`, `SUB-ANDROID`) all use `int64` / `Long` deliberately. See **ADR-0014** for the Sprint 1 migration plan.
+- **WS close code on auth failure = 1008** (RFC 6455 "policy violation"), not the originally drafted 4001. See **ADR-0007** (amended 2026-07-27).
+
 ## Acceptance gate
 
 When all three report done, the contract owner (Hermes / project owner) does the end-to-end verification:

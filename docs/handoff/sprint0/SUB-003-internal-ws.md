@@ -188,13 +188,14 @@ Three end-to-end tests using `httptest.NewServer` + `gorilla/websocket.Dialer`:
 2. **Hello timeout**:
    - Same setup with `HelloTimeout: 100*time.Millisecond`
    - Dial, but DO NOT send any frame
-   - After ~150ms, attempt to read → expect `*websocket.CloseError` with code 1008
+   - After ~150ms, attempt to read → expect `*websocket.CloseError` with code **1008** (RFC 6455 "policy violation")
    - (The server writes an `auth.error` frame first, but the client doesn't read it before close — assert via the close code)
+   - Note: per **ADR-0007 (amended 2026-07-27)**, the close code is 1008, not 4001. If you copy code from older WS auth examples, double-check the constant.
 
 3. **Invalid token**:
    - Dial, send `{"type":"auth.hello","token":"garbage"}`
    - Read frame → assert it's `AuthError{Code: CodeInvalidToken}`
-   - Next read returns close 1008
+   - Next read returns close 1008 (same RFC 6455 code as hello-timeout — clients shouldn't differentiate)
 
 Pitfall: gorilla's `ReadMessage` will return `*websocket.CloseError` when the server closes. Wrap reads in a helper that classifies the error.
 
