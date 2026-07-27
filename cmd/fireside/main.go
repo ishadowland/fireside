@@ -6,10 +6,8 @@
 //   - POST /v1/auth/login mounted by internal/auth (SUB-001)
 //   - GET  /ws/v1/connect mounted by internal/ws (SUB-003)
 //
-// The two Mount calls are conditionally compiled in: SUB-001 lands first and
-// mounts auth; SUB-003 lands second (after auth.Validate is available) and
-// mounts ws. Each sub-package self-registers in its own Mount() helper so
-// main.go never imports the package's internals.
+// Each sub-package self-registers in its own Mount() helper so main.go
+// never imports the package's internals.
 package main
 
 import (
@@ -23,43 +21,46 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/ishadowland/fireside/internal/auth"
+	"github.com/ishadowland/fireside/internal/config"
 )
 
 func main() {
-	logLevel := slog.LevelInfo
-	switch os.Getenv("LOG_LEVEL") {
-	case "debug":
-		logLevel = slog.LevelDebug
-	case "warn":
-		logLevel = slog.LevelWarn
-	case "error":
-		logLevel = slog.LevelError
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("config load failed", "err", err)
+		os.Exit(1)
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
-	slog.SetDefault(logger)
+
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})))
 
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	engine.Use(gin.Recovery())
-	engine.Use(requestLogger(logger))
+	engine.Use(requestLogger())
 
 	engine.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	auth.Mount(engine, auth.Config{
+		JWTSecret:      cfg.JWTSecret,
+		AccessTokenTTL: cfg.JWTAccessTTL,
+	})
 
 	srv := &http.Server{
-		Addr:              ":" + port,
+		Addr:              ":" + cfg.Port,
 		Handler:           engine,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	go func() {
-		slog.Info("fireside backend starting", "port", port)
+		slog.Info("fireside backend starting",
+			"port", cfg.Port,
+			"jwt_secret_bytes", len(cfg.JWTSecret),
+			"access_token_ttl", cfg.JWTAccessTTL.String(),
+		)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("server failed", "err", err)
 			os.Exit(1)
@@ -82,11 +83,11 @@ func main() {
 
 // requestLogger emits one structured log line per request, matching the
 // log/slog convention mandated by docs/design/02-modules.md.
-func requestLogger(logger *slog.Logger) gin.HandlerFunc {
+func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
-		logger.Info("http",
+		slog.Info("http",
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 			"status", c.Writer.Status(),
