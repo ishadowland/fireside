@@ -21,9 +21,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 
 	"github.com/ishadowland/fireside/internal/auth"
 	"github.com/ishadowland/fireside/internal/config"
+	wspkg "github.com/ishadowland/fireside/internal/ws"
 )
 
 func main() {
@@ -47,6 +49,19 @@ func main() {
 	auth.Mount(engine, auth.Config{
 		JWTSecret:      cfg.JWTSecret,
 		AccessTokenTTL: cfg.JWTAccessTTL,
+	})
+
+	wspkg.Mount(engine, wspkg.Config{
+		JWTSecret:    cfg.JWTSecret,
+		HelloTimeout: 5 * time.Second, // ADR-0007 mandate (5s)
+		CheckOrigin: func(r *http.Request) bool {
+			// Sprint 0: allow any origin (dev). Production sets a strict
+			// allow-list via CORS_ALLOWED_ORIGINS env (deferred).
+			return true
+		},
+		OnAuthenticated: func(uid int64, jti string, _ *websocket.Conn) {
+			slog.Info("ws authenticated", "user_id", uid, "jti", jti)
+		},
 	})
 
 	srv := &http.Server{
