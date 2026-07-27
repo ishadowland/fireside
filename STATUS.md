@@ -1,71 +1,59 @@
 # Status
 
-> **Phase 0 → Phase 1 handoff complete (docs-side). Awaiting owner's "Go" signal to start Sprint 0.**
+> **Phase 1 — Sprint 0 in progress (owner prep complete; Wave 1 dispatched).**
 
 Last updated: 2026-07-27
 
 ## Where we are
 
-Fireside is at the **end of the Phase 0/1 IPD handoff**. All design decisions, ADRs, and the Sprint 0 RFC are locked. The Phase 1 PDCP self-check has been run on 2026-07-27 and produced a **Conditional GO** — all docs-side and workspace-side inputs are ticked; five items are explicitly deferred to the Sprint 0 day-of because they require Go/Android source code that does not exist yet.
+Owner prep (D1–D9) for Sprint 0 is complete on `main`:
+- Gin server boots on `:8080` with `/healthz`, slog JSON logging, graceful shutdown (`d164e74`).
+- `users` (BIGINT id) + `auth_tokens` (UUID jti) baseline migration + sqlc-equivalent `internal/store/` (`8fca4fd`).
+- `.golangci.yml` Sprint 0 baseline (errcheck, govet, ineffassign, staticcheck, unused) — `2297614`.
+- ADR-0014 records the Sprint 0 → Sprint 1 `user_id` int64 → ULID migration plan; ADR-0007 amended to close code 1008 (`1078a1e`).
+
+**⚠️ Owner action item**: `.github/workflows/ci.yml` has the `golangci-lint` step uncommented locally but the push was rejected by GitHub (OAuth token lacks `workflow` scope). The owner must push this change via a PAT with workflow scope OR edit it via the GitHub web UI. Until then, CI will skip lint.
+
+**⚠️ Owner action item**: `make sqlc.verify` in CI will fail until SUB-001 lands and `go mod tidy` resolves `go.sum`. The CI run after D7 must either be marked as expected-fail or this prep is acknowledged in the PR description.
+
+Three subcontracts are now dispatched in two waves per [`docs/handoff/sprint0/README.md`](./docs/handoff/sprint0/README.md).
 
 ## What's done (since last status)
 
-- ✅ **ADR-0013** — Redis is deferred with explicit re-evaluation triggers (`docs/adr/0013-redis-deferred-with-triggers.md`)
-- ✅ **PDCP self-check** — `docs/reviews/pdcp-checklist.md` updated 2026-07-27, verdict = Conditional GO
-- ✅ **Sprint 0 workspace preflight** — five config files committed so Sprint 0 day-of does not start with infra setup:
-  - `.env.example` (PORT / POSTGRES_DSN / JWT_SECRET / JWT_ACCESS_TTL_MIN / LOG_LEVEL / SMS_STUB_CODE)
-  - `docker-compose.yml` (Postgres 16-alpine, named volume, healthcheck)
-  - `sqlc.yaml` (engine + queries + schema paths, Go overrides)
-  - `Makefile` (db.up/down, migrate.up/down, sqlc.generate/verify, backend.run/test/lint, android.install/test)
-  - `.github/workflows/ci.yml` (Postgres service, sqlc vet, migrate round-trip, go test -race)
+- ✅ **ADR-0014** — Sprint 0 `user_id` is `int64`; ULID migration planned for Sprint 1
+- ✅ **ADR-0007 (amendment)** — WS close code on auth failure is RFC 6455 `1008`, not `4001`
+- ✅ **D1 — `cmd/fireside/main.go`** — Gin + `/healthz` + graceful shutdown
+- ✅ **D2 — `go.mod`** — all Sprint 0 deps pinned
+- ✅ **D3 — `db/migrations/0001_init.sql`** — users + auth_tokens baseline
+- ✅ **D4 — `db/queries/auth.sql` + `internal/store/`** — sqlc-equivalent output
+- ✅ **D5 — ADR-0014** — `user_id` type pin
+- ✅ **D6 — ADR-0007 amendment** — close code correction
+- ✅ **D7 (part 1) — `.golangci.yml`** — Sprint 0 baseline lint config; CI step uncommented locally but not pushed (OAuth scope)
+- ✅ **D8 — README "Current Phase" badge** — updated to Phase 1 Sprint 0 in progress
+- ✅ **D9 — STATUS.md** — this file
+- ✅ **D10 — Sprint 0 scope note in handoff README** — the three intentional divergences from `docs/design/03-protocol.md` documented
 
-## What's deferred (Sprint 0 day-of, not pre-coding blockers)
+## What's blocked
 
-| Item | Why deferred |
-|---|---|
-| Android `min SDK = 24+` in `build.gradle` | No Android source yet |
-| WebSocket auth 5s timeout (`internal/ws/upgrader.go`) | No Go source yet |
-| `README.md` "Current Phase" badge line edit | Trivial edit, but pairs with first commit |
-| `.golangci.yml` | No Go code to lint yet (CI step is commented out) |
-| `db/migrations/0001_init.sql` | First migration needs Go side wired |
+- **CI lint enforcement** — `.github/workflows/ci.yml` needs owner push (PAT with `workflow` scope). Until then, CI runs `go test -race ./...` but no lint.
 
-These are tracked at the bottom of `docs/reviews/pdcp-checklist.md` §"Deferred notes".
+## What's next
 
-## What's next (waiting for "Go")
+**Wave 1 (parallel, dispatched now):**
+- **SUB-001** → Go backend agent — `internal/auth/` + `POST /v1/auth/login`
+- **SUB-ANDROID** → Android agent — Compose `ConnectActivity` + `WsClient.kt`
 
-When the owner signals "start Sprint 0", the next 1 day delivers:
+**Wave 2 (after SUB-001 merges):**
+- **SUB-003** → Go backend agent — `internal/ws/` + `GET /ws/v1/connect`
 
-- `go mod init github.com/ishadowland/fireside` + Gin + `/healthz`
-- Postgres up via `make db.up`, `db/migrations/0001_init.sql` applies cleanly
-- `internal/auth/` HS256 JWT issue/validate + `POST /v1/auth/login` (stub SMS accepts any phone + `1234`)
-- `internal/ws/` upgrader + first-frame router (`auth.hello` → `auth.welcome`)
-- Android Compose `ConnectActivity` connects and shows "✅ connected"
-- `make backend.run` + `make android.install` both succeed
-- CI smoke run green on first push
-
-Hard exit criteria are in `docs/rfc/phase-1-mvp.md` §"Hard exit criteria".
-
-## How decisions are tracked
-
-| Kind | Lives in | Format |
-|---|---|---|
-| Product decisions (D-numbers) | `docs/requirements/03-decision-snapshot.md` | Markdown table (D1–D29) |
-| Architecture decisions (ADR-numbers) | `docs/adr/0001-...0013-*.md` | One file per decision |
-| Design specs | `docs/design/01-04-*.md` + `07-three-sages-coalition.md` | Markdown |
-| Phase plans | `docs/rfc/phase-N-*.md` | One file per phase |
-| Reviews / gate outputs | `docs/reviews/*.md` | Checklist markdown |
-
-## How to contribute
-
-Until Phase 4 (launch), this project is single-owner. External contributions are **welcomed as PRs against the docs** (not the code, since there's no code yet). See `README.md` for contribution guide.
-
-If you spot a problem with a locked decision, **open an issue**, don't silently work around it. We have 13 ADRs and 29 product decisions — that's a lot of "why we did this" history; help us keep it accurate.
-
-## Cadence
-
-- Owner publishes a `STATUS.md` update daily (every day at 22:00 local, via scheduled cron)
-- Each update summarizes: what shipped, what's blocked, what's next
-- Phase transitions require the corresponding RFC + checklist to be ticked
+**Integration gate** (owner runs after Wave 2):
+```
+make db.up && make backend.run
+TOKEN=$(curl -s -X POST localhost:8080/v1/auth/login -d '{"phone":"+8613800138000","code":"1234"}' | jq -r .token)
+wscat -c ws://localhost:8080/ws/v1/connect
+> {"type":"auth.hello","token":"$TOKEN"}
+< {"type":"auth.welcome","user_id":42,"jti":"...","server_time":...}
+```
 
 ## Open invitations
 

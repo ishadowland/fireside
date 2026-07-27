@@ -9,7 +9,7 @@ Fireside is an async-first roundtable platform where a human host can pull in ot
 
 ## Status
 
-🚧 **Phase 0 — Concept (frozen).** Phase 1 RFC drafted, awaiting "Go" to start Sprint 0 (backend skeleton). No code yet.
+🚧 **Phase 1 — Sprint 0 in progress.** Backend skeleton being implemented via 3 parallel subcontracts (see [`docs/handoff/sprint0/`](./docs/handoff/sprint0/)). Owner prep complete: Gin + `/healthz`, `users`/`auth_tokens` schema, `internal/store/` sqlc output, `.golangci.yml`. Wave 1 (SUB-001 + SUB-ANDROID) dispatched.
 
 See:
 - [`STATUS.md`](./STATUS.md) — current phase & next steps
