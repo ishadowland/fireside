@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ember_red">#C8533F</color>
+    <color name="ember_red_light">#FFF8F4</color>
+    <color name="ember_red_dark">#1A1614</color>
+</resources>
