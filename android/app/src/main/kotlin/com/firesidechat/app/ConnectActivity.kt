@@ -40,9 +40,7 @@ fun ConnectScreen() {
     var url by remember { mutableStateOf("ws://10.0.2.2:8080/ws/v1/connect") }
     var token by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<WsEvent>(WsEvent.Closed) }
-
-    // baseUrl is host:port only — WsClient appends the canonical path.
-    val client = remember { WsClient(baseUrl = "ws://10.0.2.2:8080") }
+    var client by remember { mutableStateOf<WsClient?>(null) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(PaddingValues(24.dp)),
@@ -70,7 +68,9 @@ fun ConnectScreen() {
         Button(
             onClick = {
                 status = WsEvent.Connecting
-                client.connect(pendingToken = token) { evt -> status = evt }
+                val c = WsClient(baseUrl = url.removeSuffix("/ws/v1/connect"))
+                client = c
+                c.connect(pendingToken = token) { evt -> status = evt }
             },
             enabled = token.isNotBlank(),
         ) {

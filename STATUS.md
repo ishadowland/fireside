@@ -2,7 +2,7 @@
 
 > **Phase 1 — Sprint 0 complete (server-side hello-world verified). Awaiting Android emulator smoke + Phase 1 exit.**
 
-Last updated: 2026-07-27
+Last updated: 2026-07-29
 
 ## Where we are
 
@@ -26,6 +26,15 @@ Sprint 0 server-side hello-world is end-to-end green:
 
 ## What's done (since last status)
 
+### Baseline verification (2026-07-29)
+- ✅ Installed Go 1.22.5 toolchain (user-local, `/tmp/go`)
+- ✅ Installed `golangci-lint v1.60.1` per `.golangci.yml` `version: "2"` config
+- ✅ Fixed 6 latent lint issues uncovered by the verification run:
+  - `internal/ws/upgrader.go:126` — `_ = conn.SetReadDeadline(time.Time{})` → log-on-error (errcheck)
+  - `internal/ws/upgrader_test.go:122,152,191` — same `_ = SetReadDeadline` → `t.Fatalf` on error
+  - `internal/auth/handler_test.go:14` + `internal/ws/upgrader_test.go:21` — `TestMain` now calls `os.Exit(m.Run())` (staticcheck SA3000)
+- ✅ Re-ran all three gates: build / test -race / golangci-lint all 0 issues
+
 ### Documentation (pre-coding)
 - ✅ **ADR-0014** — `user_id` is `int64` in Sprint 0, migrates to ULID at Sprint 1 (`1078a1e`)
 - ✅ **ADR-0007 (amendment)** — WS close code on auth failure is RFC 6455 `1008`, not `4001` (`1078a1e`)
@@ -38,7 +47,7 @@ Sprint 0 server-side hello-world is end-to-end green:
 - ✅ **D5+D6** — folded into the doc commit (`1078a1e`)
 - ✅ **D7** — `.golangci.yml` Sprint 0 baseline (`2297614`); CI step uncommented locally, push blocked by OAuth (see action item 1)
 - ✅ **D8** — README Phase 1 badge (`59b28e6`)
-- ✅ **D9** — STATUS.md updates (`59b28e6`)
+- ✅ **D9** — STATUS.md updates (`59b28e6`, `8d166c5`, today)
 
 ### Subcontracts
 - ✅ **SUB-001** — `internal/auth/{jwt.go, handler.go, router.go, jwt_test.go, handler_test.go}` + `auth.Mount` wired into `main.go`. `auth.Mount` reads `cfg.JWTSecret` + `cfg.AccessTokenTTL` from `internal/config.Load()` (`78f5263`).
