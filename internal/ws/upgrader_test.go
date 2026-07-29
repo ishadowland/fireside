@@ -3,6 +3,7 @@ package ws
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ var (
 
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
-	m.Run()
+	os.Exit(m.Run())
 }
 
 func newTestServer(t *testing.T, cfg Config) *httptest.Server {
@@ -119,7 +120,9 @@ func TestHandleConnectHelloTimeout(t *testing.T) {
 
 	// After ~150ms, the server should have timed out and closed with 1008.
 	// Reading from the closed conn surfaces *websocket.CloseError.
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
 
 	for {
 		if _, _, err := conn.NextReader(); err != nil {
@@ -149,7 +152,9 @@ func TestHandleConnectInvalidToken(t *testing.T) {
 	}
 
 	// Server should write AuthError{Code: CodeInvalidToken} then close 1008.
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
 
 	var got AuthError
 	if err := conn.ReadJSON(&got); err != nil {
@@ -188,7 +193,9 @@ func TestHandleConnectBadFrame(t *testing.T) {
 		t.Fatalf("write bad frame: %v", err)
 	}
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
 
 	var got AuthError
 	if err := conn.ReadJSON(&got); err != nil {

@@ -122,8 +122,12 @@ func HandleConnect(cfg Config) gin.HandlerFunc {
 		// install ping/pong handlers or a read loop with intent — the
 		// gorilla default read deadline expires after the auth.hello
 		// deadline; we clear it so the connection can stay open for
-		// future Sprint 1+ traffic without immediate close.
-		_ = conn.SetReadDeadline(time.Time{})
+		// future Sprint 1+ traffic without immediate close. errcheck
+		// (errcheck) insists we look at the return; a clear failure
+		// here is fatal but unrecoverable, so we just log.
+		if err := conn.SetReadDeadline(time.Time{}); err != nil {
+			slog.Warn("ws clear read deadline failed", "err", err)
+		}
 		// Block in a discard read loop until the peer closes.
 		for {
 			if _, _, rerr := conn.NextReader(); rerr != nil {
