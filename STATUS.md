@@ -17,6 +17,14 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's done (since last status)
 
+### Sprint 1-2: jti replay defense(2026-07-31)
+- ✅ **`InsertToken` 在 login 时持久化 jti** —— `auth.LoginHandler` 签发 JWT 后写入 `auth_tokens(jti, user_id, expires_at)`;持久化失败 → 500(不签发无追踪 token)。
+- ✅ **`GetTokenByJTI` 在 WS first-frame 校验 jti** —— `ws.HandleConnect` JWT 验签通过后查 `auth_tokens`,`sql.ErrNoRows` → 写 `auth.error(invalid_token)` + close 1008。语义对标 ADR-0007 §Risks「tracks recently-seen jti」:只接受 login 真签发的 token,清理过期后可自然失效。
+- ✅ **`DeleteExpiredTokens` 后台清理** —— `cmd/fireside` 启动 goroutine,每 5 分钟扫一次过期 jti 行,日志报告删除条数。
+- ✅ **接口** —— 新增 `auth.TokenStore`(`InsertToken`)和 `ws.TokenLookup`(`GetTokenByJTI`);两者都由 `*store.Queries` 直接满足,`main.go` 同一 store 实例传给两端。
+- ✅ **测试** —— `fakeStore` 扩展 token 字段;`TestLoginHandlerPersistsJTI` 验证登录入库、`TestLoginHandlerNilTokensKeepsLegacyBehavior` 验证 nil Tokens 兼容旧路径;`ws` 侧 `TestHandleConnectReplayDefenseRejected`(未知 jti 拒绝)+ `TestHandleConnectReplayDefenseAccepted`(已持久化 jti 通过)。
+- ✅ **单库 SQL** —— `db/queries/auth.sql` 加 `GetTokenByJTI`;`internal/store/{auth.sql,querier}.go` 手动同步生成代码(sqlc v2 CLI 当前不可用,保持本仓原 sqlc-equivalent 风格)。
+
 ### Sprint 1-1: 真实用户查找(2026-07-31)
 - ✅ **`auth.UserStore` 接口 + LoginHandler 接入 store** — 登录改为 `GetUserByPhone` 查 `users` 表;未知手机号自动注册(`InsertUser`,stub 合约不变,直到真实短信接入)。
 - ✅ **`main.go` wire `internal/store`** — `sql.Open("pgx", POSTGRES_DSN)` + `store.New(db)` DI 进 `auth.Config.Users`;DB 不可达时服务照常启动(healthz/dashboard 可用),login 返回 500 直至 PG 就绪。
@@ -84,11 +92,11 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's next (Sprint 1 kickoff)
 
-Sprint 1 已启动(1-1 完成)。剩余 backlog:
+Sprint 1-1 / 1-2 完成。剩余 backlog:
 
-- Add `InsertToken` to persist jti for replay defense (ADR-0007 §Risks) — Sprint 1-2
 - First ULID migration per ADR-0014 (regenerate users table with CHAR(26)) — Sprint 1-3
-- 真实 DB 集成验证(本机无 Postgres/Docker;跑 `docker compose up -d postgres` + `make migrate.up` 后验证 login 200)
+- 真实 DB 集成验证(本机无 Postgres/Docker;跑 `docker compose up -d postgres` + `make migrate.up` 后验证 login 200 + ws auth.welcome)
+- CI workflow 验证(推送后看 GitHub Actions 跑 golangci-lint + migrate + test)
 
 ## Open invitations
 

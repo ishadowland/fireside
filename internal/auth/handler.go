@@ -7,8 +7,10 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/ishadowland/fireside/internal/store"
 )
@@ -19,6 +21,16 @@ import (
 type UserStore interface {
 	GetUserByPhone(ctx context.Context, phone string) (store.User, error)
 	InsertUser(ctx context.Context, arg store.InsertUserParams) (store.User, error)
+}
+
+// TokenStore persists freshly-issued JWTs' jti so the WS layer can do
+// replay defense (ADR-0007 §Risks → "Replay"). On login, the handler
+// inserts the token's jti; on WS auth.hello, the ws package looks the
+// jti up to confirm the token was actually issued by /v1/auth/login.
+//
+// *store.Queries satisfies it directly.
+type TokenStore interface {
+	InsertToken(ctx context.Context, arg store.InsertTokenParams) (store.AuthToken, error)
 }
 
 // LoginRequest is the JSON body of POST /v1/auth/login.
@@ -52,11 +64,11 @@ func effectiveStubCode(cfg Config) string {
 // On wrong code / unknown phone: 401 with {"error":"invalid_credentials"}.
 // On malformed body: 400 with {"error":"invalid_request"}.
 //
-// Sprint 1: the phone is resolved against the users table via cfg.Users.
-// Unknown phones are auto-registered (insert) so the stub "any phone + code"
-// contract still holds until the real SMS provider adds an explicit
-// registration flow. The inserted id is deriveStubUserID's deterministic
-// int64 so re-login yields the same uid (regression test #4).
+// Sprint 1-2: the freshly-issued JWT's jti is persisted in auth_tokens
+// so the WS first-frame auth (ws.HandleConnect) can reject tokens that
+// were never issued by /v1/auth/login (replay defense; ADR-0007 §Risks).
+// If persistence fails, login returns 500 rather than issuing an
+// untrackable token.
 func LoginHandler(cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req LoginRequest
@@ -81,6 +93,24 @@ func LoginHandler(cfg Config) gin.HandlerFunc {
 			slog.Error("auth: failed to sign jwt", "err", err, "jti", jti)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
+		}
+
+		if cfg.Tokens != nil {
+			jtUUID, perr := uuid.Parse(jti)
+			if perr != nil {
+				slog.Error("auth: invalid jti from Issue", "err", perr)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+				return
+			}
+			if _, err := cfg.Tokens.InsertToken(c.Request.Context(), store.InsertTokenParams{
+				Jti:       jtUUID,
+				UserID:    userID,
+				ExpiresAt: sql.NullTime{Time: time.Now().Add(cfg.AccessTokenTTL), Valid: true},
+			}); err != nil {
+				slog.Error("auth: failed to persist jti", "err", err, "jti", jti)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+				return
+			}
 		}
 
 		c.JSON(http.StatusOK, LoginResponse{

@@ -76,3 +76,16 @@ func (q *Queries) DeleteExpiredTokens(ctx context.Context) (int64, error) {
 	}
 	return rows, nil
 }
+
+const getTokenByJTI = `-- name: GetTokenByJTI :one
+SELECT jti, user_id, expires_at, created_at
+FROM auth_tokens
+WHERE jti = $1
+`
+
+func (q *Queries) GetTokenByJTI(ctx context.Context, jti uuid.UUID) (AuthToken, error) {
+	row := q.db.QueryRowContext(ctx, getTokenByJTI, jti)
+	var i AuthToken
+	err := row.Scan(&i.Jti, &i.UserID, &i.ExpiresAt, &i.CreatedAt)
+	return i, err
+}

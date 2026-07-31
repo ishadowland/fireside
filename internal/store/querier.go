@@ -4,6 +4,8 @@ package store
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 type Querier interface {
@@ -11,6 +13,7 @@ type Querier interface {
 	InsertUser(ctx context.Context, arg InsertUserParams) (User, error)
 	InsertToken(ctx context.Context, arg InsertTokenParams) (AuthToken, error)
 	DeleteExpiredTokens(ctx context.Context) (int64, error)
+	GetTokenByJTI(ctx context.Context, jti uuid.UUID) (AuthToken, error)
 }
 
 var _ Querier = (*Queries)(nil)

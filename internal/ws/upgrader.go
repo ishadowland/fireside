@@ -1,12 +1,18 @@
 package ws
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+
+	"github.com/ishadowland/fireside/internal/store"
 )
 
 // ClosePolicyViolation is the RFC 6455 close code for "policy
@@ -15,6 +21,17 @@ import (
 // rejected as an app-specific convention that breaks cross-client
 // handling.
 const ClosePolicyViolation = websocket.ClosePolicyViolation
+
+// TokenLookup verifies that a JWT's jti was persisted by /v1/auth/login
+// in this server's lifetime. Sprint 1-2 replay defense (ADR-0007 §Risks →
+// "Replay"): even a perfectly-signed token is rejected if its jti is not
+// in the table, so a stolen/replayed token can't be accepted.
+//
+// *store.Queries satisfies it directly. nil disables the check (test/legacy
+// paths); main.go always wires the real store.
+type TokenLookup interface {
+	GetTokenByJTI(ctx context.Context, jti uuid.UUID) (store.AuthToken, error)
+}
 
 // Config wires the WS handler. JWTSecret and OnAuthenticated are
 // required; HelloTimeout and CheckOrigin have sane defaults.
@@ -31,6 +48,9 @@ type Config struct {
 	// stub: just log. Sprint 1+ will register the conn in the per-room
 	// hub here.
 	OnAuthenticated func(userID int64, jti string, conn *websocket.Conn)
+
+	// Tokens enables jti replay defense. nil = check skipped (tests).
+	Tokens TokenLookup
 }
 
 // HandleConnect returns the Gin handler for GET /ws/v1/connect.
@@ -105,6 +125,26 @@ func HandleConnect(cfg Config) gin.HandlerFunc {
 			return
 		}
 
+		// Sprint 1-2: replay defense (ADR-0007 §Risks). Even a perfectly
+		// signed token is rejected if its jti is not in auth_tokens.
+		if cfg.Tokens != nil {
+			jtUUID, perr := uuid.Parse(claims.JTI)
+			if perr != nil {
+				slog.Warn("ws jti not a uuid", "jti", claims.JTI)
+				writeAuthErrorAndClose(conn, CodeInvalidToken)
+				return
+			}
+			if _, err := cfg.Tokens.GetTokenByJTI(c.Request.Context(), jtUUID); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					slog.Info("ws rejected: jti not persisted", "jti", claims.JTI, "user_id", claims.UserID)
+				} else {
+					slog.Warn("ws jti lookup failed", "err", err, "jti", claims.JTI)
+				}
+				writeAuthErrorAndClose(conn, CodeInvalidToken)
+				return
+			}
+		}
+
 		welcome := AuthWelcome{
 			Type:       FrameTypeAuthWelcome,
 			UserID:     claims.UserID,
@@ -151,6 +191,21 @@ func sendPolicyViolationClose(conn *websocket.Conn) {
 	if err := conn.Close(); err != nil {
 		slog.Debug("ws plain close failed", "err", err)
 	}
+}
+
+// writeAuthErrorAndClose writes an auth.error frame and then closes the
+// connection with code 1008. Used by the replay-defense check (Sprint 1-2)
+// and any other post-hello validation failure path.
+func writeAuthErrorAndClose(conn *websocket.Conn, code string) {
+	if werr := conn.WriteJSON(AuthError{
+		Type:  FrameTypeAuthError,
+		Code:  code,
+		Error: humanize(code),
+	}); werr != nil {
+		slog.Debug("ws auth.error write failed", "code", code, "err", werr)
+		return
+	}
+	sendPolicyViolationClose(conn)
 }
 
 // humanize maps error codes to human-readable strings for the AuthError

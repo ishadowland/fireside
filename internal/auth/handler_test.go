@@ -24,12 +24,16 @@ func TestMain(m *testing.M) {
 
 // fakeStore is an in-memory auth.UserStore so handler tests don't need a DB.
 type fakeStore struct {
-	mu    sync.Mutex
-	users map[string]store.User
+	mu     sync.Mutex
+	users  map[string]store.User
+	tokens map[string]store.AuthToken // jti string -> row
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{users: make(map[string]store.User)}
+	return &fakeStore{
+		users:  make(map[string]store.User),
+		tokens: make(map[string]store.AuthToken),
+	}
 }
 
 func (f *fakeStore) GetUserByPhone(_ context.Context, phone string) (store.User, error) {
@@ -50,13 +54,31 @@ func (f *fakeStore) InsertUser(_ context.Context, arg store.InsertUserParams) (s
 	return u, nil
 }
 
+func (f *fakeStore) InsertToken(_ context.Context, arg store.InsertTokenParams) (store.AuthToken, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	tok := store.AuthToken{Jti: arg.Jti, UserID: arg.UserID, ExpiresAt: arg.ExpiresAt}
+	f.tokens[arg.Jti.String()] = tok
+	return tok, nil
+}
+
+// hasToken returns true if a jti was persisted (test helper).
+func (f *fakeStore) hasToken(jti string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.tokens[jti]
+	return ok
+}
+
 func newTestEngine(t *testing.T) *gin.Engine {
 	t.Helper()
+	fs := newFakeStore()
 	r := gin.New()
 	Mount(r, Config{
 		JWTSecret:      testSecret,
 		AccessTokenTTL: 15 * time.Minute,
-		Users:          newFakeStore(),
+		Users:          fs,
+		Tokens:         fs,
 	})
 	return r
 }
@@ -204,5 +226,60 @@ func TestLoginHandlerAutoRegisters(t *testing.T) {
 	w2 := postJSON(t, r, "/v1/auth/login", `{"phone":"`+phone+`","code":"1234"}`)
 	if w2.Code != 200 {
 		t.Fatalf("second login = %d, want 200", w2.Code)
+	}
+}
+
+// TestLoginHandlerPersistsJTI verifies Sprint 1-2 replay defense: each
+// successful login inserts the JWT's jti into the token store so the WS
+// first-frame auth can verify the token was actually issued.
+func TestLoginHandlerPersistsJTI(t *testing.T) {
+	t.Parallel()
+	fs := newFakeStore()
+	r := gin.New()
+	Mount(r, Config{
+		JWTSecret:      testSecret,
+		AccessTokenTTL: 15 * time.Minute,
+		Users:          fs,
+		Tokens:         fs,
+	})
+
+	body := postJSON(t, r, "/v1/auth/login", `{"phone":"+8613900002222","code":"1234"}`)
+	if body.Code != 200 {
+		t.Fatalf("login = %d, want 200; body=%s", body.Code, body.Body.String())
+	}
+
+	var resp LoginResponse
+	if err := json.Unmarshal(body.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+
+	claims, err := Validate(testSecret, resp.Token)
+	if err != nil {
+		t.Fatalf("issued token failed Validate: %v", err)
+	}
+	if !fs.hasToken(claims.JTI) {
+		t.Errorf("jti %q was not persisted; WS replay defense would reject it", claims.JTI)
+	}
+	if len(fs.tokens) != 1 {
+		t.Errorf("expected 1 token row, got %d", len(fs.tokens))
+	}
+}
+
+// TestLoginHandlerNilTokensKeepsLegacyBehavior: with Tokens=nil the
+// handler must still issue a token (preserves Sprint 0 contract for
+// callers that haven't wired the store yet).
+func TestLoginHandlerNilTokensKeepsLegacyBehavior(t *testing.T) {
+	t.Parallel()
+	r := gin.New()
+	Mount(r, Config{
+		JWTSecret:      testSecret,
+		AccessTokenTTL: 15 * time.Minute,
+		Users:          newFakeStore(),
+		// Tokens deliberately nil.
+	})
+
+	body := postJSON(t, r, "/v1/auth/login", `{"phone":"+8613900003333","code":"1234"}`)
+	if body.Code != 200 {
+		t.Fatalf("login = %d, want 200; body=%s", body.Code, body.Body.String())
 	}
 }

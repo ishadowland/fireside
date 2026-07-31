@@ -35,3 +35,14 @@ RETURNING jti, user_id, expires_at, created_at;
 
 DELETE FROM auth_tokens
 WHERE expires_at < NOW();
+
+-- name: GetTokenByJTI :one
+-- Sprint 1-2 replay defense (ADR-0007 §Risks → "Replay"): the WS
+-- first-frame auth looks this up to reject tokens whose jti was never
+-- persisted (i.e. not issued by POST /v1/auth/login in this server's
+-- lifetime), so a stolen/replayed token can't be accepted even if its
+-- signature is valid.
+
+SELECT jti, user_id, expires_at, created_at
+FROM auth_tokens
+WHERE jti = $1;
