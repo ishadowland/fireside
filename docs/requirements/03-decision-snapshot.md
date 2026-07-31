@@ -156,6 +156,10 @@ CLI:     cobra(fsc)
 | D23 | Workspace 自动合并 | 智能定时(agent 静默 30s + ≥1 unmerged) | 2026-07-26 |
 | D24 | Workspace 摘要 | 复用 custom agent,server 无 LLM key | 2026-07-26 |
 | D25 | git 后端 | go-git 内嵌(Gitness 已弃) | 2026-07-26 |
+| D26 | **Three-Sages (EVA MAGI)** | Composite agent `kind='coalition'` 绑 3 个 agent 为 MELCHIOR / BALTHASAR / CASPER(EVA Magi 三节点:科学家/超我 + 母亲/自我 + 女人/本我)。默认 role prompts 随仓库发布,用户可改。@ 提及触发 R1(辩论)→ R2(收敛)→ R3(投票)→ Synth 4 轮协议,对外呈现为单个 participant | 2026-07-31 |
+| D27 | **投票阈值** | 常态 2:1 多数决;**极端 3:0 一致**。极端触发:节点打 `extreme` flag / 不可逆操作关键词正则(delete, ban, self-destruct, revoke, force-quit,可配)/ host 显式打 `critical` / room config 强制一致 | 2026-07-31 |
+| D28 | **矛盾作为系统基石** | 不追求"唯一最优解"。三节点分歧 = 正常态 ≠ 故障。多数决 2:1 必须**带保留异见**汇报(不能漂白成 3:0)。极端决策 3:0 不达成 → 系统正确行为是**挂起 + 请求 host 人工介入**,不走多数决兜底(参 EVA *Air*: CASPER 投 No,自爆失败) | 2026-07-31 |
+| D29 | **Room 全局公告(announcement)** | `rooms.announcement TEXT ≤500 chars`(默认空)。host/admin 可改,其他只读。每个 agent prompt 拼装顺序:`[room announcement] + [agent role prompt] + [agent persona prompt] + [user message]`。UI:房间顶部 sticky bar + ✏️ 编辑按钮。辩论中途改 announcement → 当前轮用旧值,下一轮起切换新值(不重滚) | 2026-07-31 |
 
 ---
 

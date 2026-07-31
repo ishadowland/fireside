@@ -1,8 +1,8 @@
 # Three-Sages Coalition Agent (EVA MAGI)
 
-> **Status**: 📝 drafted (2026-07-26) — references D26 / D27 / D28 / D29
+> **Status**: ✅ locked v0.2 (2026-07-31) — D26 / D27 / D28 / D29 added to `docs/requirements/03-decision-snapshot.md`; see also `docs/requirements/00-overview.md` decision table
 > **Intent**: MVP composite-agent design for the "三贤人" feature
-> **Codebase**: not yet implemented
+> **Codebase**: not yet implemented (db migrations + Go orchestration in Phase 1 backlog)
 
 ## 1. Overview
 
