@@ -2,19 +2,52 @@ package auth
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/ishadowland/fireside/internal/store"
 )
 
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
 	os.Exit(m.Run())
+}
+
+// fakeStore is an in-memory auth.UserStore so handler tests don't need a DB.
+type fakeStore struct {
+	mu    sync.Mutex
+	users map[string]store.User
+}
+
+func newFakeStore() *fakeStore {
+	return &fakeStore{users: make(map[string]store.User)}
+}
+
+func (f *fakeStore) GetUserByPhone(_ context.Context, phone string) (store.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.users[phone]
+	if !ok {
+		return store.User{}, sql.ErrNoRows
+	}
+	return u, nil
+}
+
+func (f *fakeStore) InsertUser(_ context.Context, arg store.InsertUserParams) (store.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u := store.User{ID: arg.ID, Phone: arg.Phone}
+	f.users[arg.Phone] = u
+	return u, nil
 }
 
 func newTestEngine(t *testing.T) *gin.Engine {
@@ -23,6 +56,7 @@ func newTestEngine(t *testing.T) *gin.Engine {
 	Mount(r, Config{
 		JWTSecret:      testSecret,
 		AccessTokenTTL: 15 * time.Minute,
+		Users:          newFakeStore(),
 	})
 	return r
 }
@@ -128,5 +162,47 @@ func TestLoginHandlerDeterministicUserID(t *testing.T) {
 	}
 	if c1.UserID != c2.UserID {
 		t.Errorf("UserID should be deterministic; got %d then %d", c1.UserID, c2.UserID)
+	}
+}
+
+// TestLoginHandlerAutoRegisters verifies the store is consulted: a first
+// login persists the user (insert), a second login reuses the row (lookup).
+func TestLoginHandlerAutoRegisters(t *testing.T) {
+	t.Parallel()
+	fs := newFakeStore()
+	r := gin.New()
+	Mount(r, Config{
+		JWTSecret:      testSecret,
+		AccessTokenTTL: 15 * time.Minute,
+		Users:          fs,
+	})
+
+	const phone = "+8613900001111"
+	w1 := postJSON(t, r, "/v1/auth/login", `{"phone":"`+phone+`","code":"1234"}`)
+	if w1.Code != 200 {
+		t.Fatalf("first login = %d, want 200; body=%s", w1.Code, w1.Body.String())
+	}
+
+	// The user row must now exist in the fake store (auto-registered).
+	u, err := fs.GetUserByPhone(context.Background(), phone)
+	if err != nil {
+		t.Fatalf("user should have been auto-registered: %v", err)
+	}
+	if u.Phone != phone {
+		t.Errorf("stored phone = %q, want %q", u.Phone, phone)
+	}
+
+	// A second login must find the existing row (insert count unchanged).
+	var insertCount int
+	for range fs.users {
+		insertCount++
+	}
+	if insertCount != 1 {
+		t.Errorf("expected exactly 1 user row, got %d", insertCount)
+	}
+
+	w2 := postJSON(t, r, "/v1/auth/login", `{"phone":"`+phone+`","code":"1234"}`)
+	if w2.Code != 200 {
+		t.Fatalf("second login = %d, want 200", w2.Code)
 	}
 }

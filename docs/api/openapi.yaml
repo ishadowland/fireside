@@ -1,0 +1,250 @@
+# Fireside Public API (OpenAPI 3.0.3)
+#
+# Single HTTP/WS server on :18080 (ADR-0004). REST endpoints below;
+# the WebSocket contract is documented in docs/design/03-protocol.md and
+# ADR-0007 (first-frame auth).
+#
+# Auth: POST /v1/auth/login returns a JWT (HS256, 15 min TTL). The JWT is
+# used only inside the WebSocket auth.hello frame; REST is open in Sprint 1
+# (no bearer enforcement yet).
+openapi: 3.0.3
+info:
+  title: Fireside API
+  version: 0.1.0
+  description: >
+    Fireside — async-first roundtable platform. Sprint 1 surface:
+    health, stub-code login, and the local-only test dashboard.
+
+servers:
+  - url: http://localhost:18080
+    description: local dev (default port, ADR-0004)
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      operationId: healthz
+      responses:
+        "200":
+          description: Server is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                required: [status]
+              example:
+                status: ok
+
+  /v1/auth/login:
+    post:
+      summary: Login with phone + SMS code (stub)
+      operationId: login
+      description: >
+        Sprint 0/1 uses a stub code (SMS_STUB_CODE, default "1234").
+        Unknown phones are auto-registered on first login. Returns a JWT
+        to be presented inside the WebSocket auth.hello frame.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  description: E.164 phone number, e.g. +8613800138000
+                code:
+                  type: string
+                  description: Stub SMS code (SMS_STUB_CODE, default "1234")
+                  example: "1234"
+              required: [phone, code]
+            examples:
+              stub-login:
+                value:
+                  phone: "+8613800138000"
+                  code: "1234"
+      responses:
+        "200":
+          description: JWT issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: HS256 JWT; present in WS auth.hello
+                  expires_in:
+                    type: integer
+                    description: Access-token TTL in seconds (900 = 15 min)
+                required: [token, expires_in]
+              example:
+                token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                expires_in: 900
+        "400":
+          description: Malformed body (missing fields, non-E.164 phone)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: invalid_request
+        "401":
+          description: Wrong SMS code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: invalid_credentials
+        "500":
+          description: User resolution or token signing failed (e.g. DB down)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: internal_error
+
+  /v1/dashboard/config:
+    get:
+      summary: Dashboard bootstrap config (loopback-only)
+      operationId: dashboardConfig
+      description: >
+        Serves the stub SMS code so the embedded dashboard can auto-login.
+        Only reachable from 127.0.0.1 / ::1 (ADR-0019); other clients get 404.
+      responses:
+        "200":
+          description: Bootstrap values
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stub_code:
+                    type: string
+                    description: SMS_STUB_CODE from server config
+                required: [stub_code]
+              example:
+                stub_code: "1234"
+        "404":
+          description: Non-loopback client (deliberate; hides the route)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dashboard/:
+    get:
+      summary: Local test dashboard (loopback-only, HTML)
+      operationId: dashboardIndex
+      description: >
+        Embedded HTML/JS page mirroring the Android app's Sprint 0 flow
+        (auto stub-login -> WS connect -> auth.hello -> auth.welcome).
+        Loopback-only per ADR-0019.
+      responses:
+        "200":
+          description: Dashboard HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /dashboard/static/{file}:
+    get:
+      summary: Dashboard static asset (loopback-only)
+      operationId: dashboardStatic
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [app.js, style.css]
+          description: Asset name under internal/dashboard/assets/
+      responses:
+        "200":
+          description: Asset content
+          content:
+            application/javascript: {}
+            text/css: {}
+        "404":
+          description: Unknown asset or non-loopback client
+
+  /ws/v1/connect:
+    get:
+      summary: WebSocket upgrade (first-frame auth)
+      operationId: wsConnect
+      description: >
+        Upgrades to a WebSocket. The client MUST send
+        {"type":"auth.hello","token":"<jwt>"} as its first frame within 5s.
+        On success the server replies auth.welcome; on failure it sends
+        auth.error then closes with code 1008 (ADR-0007). Full frame spec in
+        docs/design/03-protocol.md.
+      responses:
+        "101":
+          description: Switching Protocols; subsequent frames per the WS spec
+        "400":
+          description: Not a WebSocket upgrade request
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+      required: [error]
+
+    # WebSocket frames (reference only; not REST bodies)
+    AuthHello:
+      type: object
+      properties:
+        type:
+          type: string
+          const: auth.hello
+        token:
+          type: string
+          description: JWT from POST /v1/auth/login
+      required: [type, token]
+      description: "Client -> server, first frame"
+
+    AuthWelcome:
+      type: object
+      properties:
+        type:
+          type: string
+          const: auth.welcome
+        user_id:
+          type: integer
+          format: int64
+        jti:
+          type: string
+        server_time:
+          type: integer
+          format: int64
+      required: [type, user_id, jti, server_time]
+      description: "Server -> client on successful auth"
+
+    AuthError:
+      type: object
+      properties:
+        type:
+          type: string
+          const: auth.error
+        code:
+          type: string
+          enum: [invalid_token, hello_timeout, bad_frame, internal_error]
+        error:
+          type: string
+      required: [type, code, error]
+      description: "Server -> client before close on failed auth"

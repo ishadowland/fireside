@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -22,10 +23,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 
 	"github.com/ishadowland/fireside/internal/auth"
 	"github.com/ishadowland/fireside/internal/config"
 	"github.com/ishadowland/fireside/internal/dashboard"
+	"github.com/ishadowland/fireside/internal/store"
 	wspkg "github.com/ishadowland/fireside/internal/ws"
 )
 
@@ -51,6 +54,7 @@ func main() {
 		JWTSecret:      cfg.JWTSecret,
 		AccessTokenTTL: cfg.JWTAccessTTL,
 		StubCode:       cfg.SMSStubCode,
+		Users:          newUserStore(cfg.PostgresDSN),
 	})
 
 	dashboard.Mount(engine, dashboard.Config{
@@ -116,4 +120,28 @@ func requestLogger() gin.HandlerFunc {
 			"client_ip", c.ClientIP(),
 		)
 	}
+}
+
+// newUserStore opens the Postgres connection and returns a store.Queries,
+// which satisfies auth.UserStore. The server still boots when the DB is
+// unreachable (healthz/dashboard stay up); auth/login then fails with 500
+// until Postgres is reachable.
+func newUserStore(dsn string) *store.Queries {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		slog.Error("open postgres failed", "err", err)
+		os.Exit(1)
+	}
+	db.SetMaxOpenConns(5)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		slog.Warn("postgres not reachable yet; /v1/auth/login will 500 until it is up", "err", err)
+	} else {
+		slog.Info("postgres connected")
+	}
+	return store.New(db)
 }

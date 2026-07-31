@@ -1,12 +1,25 @@
 package auth
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"hash/fnv"
 	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/ishadowland/fireside/internal/store"
 )
+
+// UserStore is the persistence surface the login handler needs.
+//
+// *store.Queries satisfies it directly (see internal/store/querier.go).
+type UserStore interface {
+	GetUserByPhone(ctx context.Context, phone string) (store.User, error)
+	InsertUser(ctx context.Context, arg store.InsertUserParams) (store.User, error)
+}
 
 // LoginRequest is the JSON body of POST /v1/auth/login.
 type LoginRequest struct {
@@ -39,9 +52,11 @@ func effectiveStubCode(cfg Config) string {
 // On wrong code / unknown phone: 401 with {"error":"invalid_credentials"}.
 // On malformed body: 400 with {"error":"invalid_request"}.
 //
-// Sprint 0 does NOT verify the phone maps to an existing user — any E.164
-// phone is accepted. deriveStubUserID returns a deterministic int64 from
-// the phone so re-login yields the same uid (regression test #4).
+// Sprint 1: the phone is resolved against the users table via cfg.Users.
+// Unknown phones are auto-registered (insert) so the stub "any phone + code"
+// contract still holds until the real SMS provider adds an explicit
+// registration flow. The inserted id is deriveStubUserID's deterministic
+// int64 so re-login yields the same uid (regression test #4).
 func LoginHandler(cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req LoginRequest
@@ -54,7 +69,13 @@ func LoginHandler(cfg Config) gin.HandlerFunc {
 			return
 		}
 
-		userID := deriveStubUserID(req.Phone)
+		userID, err := resolveUserID(c.Request.Context(), cfg.Users, req.Phone)
+		if err != nil {
+			slog.Error("auth: failed to resolve user", "err", err, "phone", req.Phone)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+			return
+		}
+
 		token, jti, err := Issue(cfg.JWTSecret, userID, cfg.AccessTokenTTL)
 		if err != nil {
 			slog.Error("auth: failed to sign jwt", "err", err, "jti", jti)
@@ -69,9 +90,33 @@ func LoginHandler(cfg Config) gin.HandlerFunc {
 	}
 }
 
+// resolveUserID looks the phone up in the users table, auto-registering
+// unknown phones. Returns the user's int64 id.
+func resolveUserID(ctx context.Context, users UserStore, phone string) (int64, error) {
+	if users == nil {
+		return deriveStubUserID(phone), nil
+	}
+	user, err := users.GetUserByPhone(ctx, phone)
+	if err == nil {
+		return user.ID, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+	inserted, err := users.InsertUser(ctx, store.InsertUserParams{
+		ID:    deriveStubUserID(phone),
+		Phone: phone,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return inserted.ID, nil
+}
+
 // deriveStubUserID returns a deterministic int64 from the E.164 phone.
 //
-// stub: replace in Sprint 1 with real user lookup (db/queries/auth.sql :: GetUserByPhone).
+// Sprint 1: used only as the id for auto-registered users (resolveUserID)
+// and as the nil-Users fallback. Replaced by a ULID at Sprint 1+ per ADR-0014.
 //
 // We use FNV-64 because it is fast, allocation-free, and we don't care
 // about cryptographic strength (the uid is internal; security comes from

@@ -17,6 +17,13 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's done (since last status)
 
+### Sprint 1-1: 真实用户查找(2026-07-31)
+- ✅ **`auth.UserStore` 接口 + LoginHandler 接入 store** — 登录改为 `GetUserByPhone` 查 `users` 表;未知手机号自动注册(`InsertUser`,stub 合约不变,直到真实短信接入)。
+- ✅ **`main.go` wire `internal/store`** — `sql.Open("pgx", POSTGRES_DSN)` + `store.New(db)` DI 进 `auth.Config.Users`;DB 不可达时服务照常启动(healthz/dashboard 可用),login 返回 500 直至 PG 就绪。
+- ✅ **依赖** — `github.com/jackc/pgx/v5/stdlib`(database/sql driver)。
+- ✅ **测试** — `fakeStore` 内存实现;新增 `TestLoginHandlerAutoRegisters`(首登入库、二登复用);既有 7 测试全部转 store 路径。
+- ✅ **`docs/api/openapi.yaml`** — 补齐 RFC 硬性退出条件缺口:REST(/healthz、login、dashboard)+ WS(auth.hello/welcome/error 帧契约)。
+
 ### 本地测试 Dashboard(ADR-0019,2026-07-31)
 - ✅ **ADR-0019** — 本地测试 Dashboard:loopback-only、自动 stub 登录、零前端构建链(go:embed)。
 - ✅ **`internal/dashboard`** — 挂载 `/dashboard/`(回环 IP 限流)+ `/v1/dashboard/config`(下发 stub code)。
@@ -77,12 +84,11 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's next (Sprint 1 kickoff)
 
-The Sprint 0 wiring exercise is done. Phase 2 starts when the owner gives the "go" signal. Sprint 1 backlog:
+Sprint 1 已启动(1-1 完成)。剩余 backlog:
 
-- Replace `deriveStubUserID` with real `GetUserByPhone` lookup against `internal/store/`
-- Add `InsertToken` to persist jti for replay defense (ADR-0007 §Risks)
-- First ULID migration per ADR-0014 (regenerate users table with CHAR(26))
-- Wire `internal/store` into `main.go` (open *sql.DB, construct queries, DI into auth.LoginHandler)
+- Add `InsertToken` to persist jti for replay defense (ADR-0007 §Risks) — Sprint 1-2
+- First ULID migration per ADR-0014 (regenerate users table with CHAR(26)) — Sprint 1-3
+- 真实 DB 集成验证(本机无 Postgres/Docker;跑 `docker compose up -d postgres` + `make migrate.up` 后验证 login 200)
 
 ## Open invitations
 

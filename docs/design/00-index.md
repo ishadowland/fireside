@@ -22,3 +22,4 @@
 
 - Requirements: [`../requirements/00-overview.md`](../requirements/00-overview.md)
 - Tech stack rationale: [`../requirements/01-tech-decisions.md`](../requirements/01-tech-decisions.md)
+- Public API: [`../api/openapi.yaml`](../api/openapi.yaml) — REST + WebSocket contract
