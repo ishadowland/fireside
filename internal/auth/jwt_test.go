@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 var testSecret = []byte("test-secret-not-for-production-use-only")
@@ -78,17 +81,24 @@ func TestValidateTampered(t *testing.T) {
 
 func TestValidateMissingExp(t *testing.T) {
 	t.Parallel()
-	// Hand-craft a JWT without exp via the underlying library; this guards
-	// against the WithExpirationRequired() option being removed by accident.
-	// We use the unexported constructor path by re-issuing then stripping exp:
-	// simpler — issue with 1ns TTL, then Validate immediately. If the option
-	// is missing, this would still pass; the real check is that
-	// WithExpirationRequired is wired (see jwt.go). Belt-and-braces test.
-	tok, _, err := Issue(testSecret, 1, 1*time.Hour)
+	// Hand-craft a token WITHOUT an `exp` claim. This guards the
+	// WithExpirationRequired() option in jwt.go: a token missing exp
+	// must be rejected even though it is well-formed and signed.
+	claims := jwt.MapClaims{
+		"uid": int64(1),
+		"jti": uuid.NewString(),
+		"sub": "fireside-user",
+		"iat": time.Now().Unix(),
+		"nbf": time.Now().Unix(),
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := tok.SignedString(testSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Validate(testSecret, tok); err != nil {
-		t.Errorf("normal token should validate, got %v", err)
+
+	_, err = Validate(testSecret, signed)
+	if err != ErrTokenInvalid {
+		t.Errorf("got %v, want ErrTokenInvalid", err)
 	}
 }

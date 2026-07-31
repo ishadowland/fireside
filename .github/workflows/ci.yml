@@ -25,7 +25,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     env:
-      POSTGRES_DSN: postgres://fireside:***@localhost:5432/fireside?sslmode=disable
+      POSTGRES_DSN: postgres://fireside:devpassword@localhost:5432/fireside?sslmode=disable
       JWT_SECRET: ci-test-secret-not-for-production
       JWT_ACCESS_TTL_MIN: "15"
       LOG_LEVEL: info
@@ -52,15 +52,17 @@ jobs:
         run: sqlc vet
 
       - name: Migrations up
-        run: make migrate.up
+        # migrate is installed to /usr/local/bin and there is no .env in CI,
+        # so invoke the binary directly instead of going through `make`.
+        run: migrate -path db/migrations -database "$POSTGRES_DSN" up
 
       - name: Migrations down (round-trip)
-        run: make migrate.down
+        run: migrate -path db/migrations -database "$POSTGRES_DSN" down 1
 
       - name: go mod tidy check
-        run: go mod tidy
-        # If tidy changed anything, `git diff` would show updates; CI fails here
-        # only on `go test` failures — keeping this step as a smoke test for now.
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
 
       - name: go build
         run: go build ./...
@@ -68,8 +70,7 @@ jobs:
       - name: go test
         run: go test -race ./...
 
-      # golangci-lint enabled once .golangci.yml is added (Sprint 0 day-of).
-      # - name: golangci-lint
-      #   uses: golangci/golangci-lint-action@v6
-      #   with:
-      #     version: latest
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest

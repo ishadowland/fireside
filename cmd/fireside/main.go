@@ -49,6 +49,7 @@ func main() {
 	auth.Mount(engine, auth.Config{
 		JWTSecret:      cfg.JWTSecret,
 		AccessTokenTTL: cfg.JWTAccessTTL,
+		StubCode:       cfg.SMSStubCode,
 	})
 
 	wspkg.Mount(engine, wspkg.Config{

@@ -11,6 +11,7 @@ import (
 type Config struct {
 	JWTSecret      []byte        // required; HS256 secret, ≥32 bytes in prod
 	AccessTokenTTL time.Duration // required; RFC says 15 min
+	StubCode       string        // optional; SMS code accepted in Sprint 0, defaults to "1234"
 }
 
 // Mount registers POST /v1/auth/login onto r.

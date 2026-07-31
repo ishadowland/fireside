@@ -1,13 +1,11 @@
 package auth
 
 import (
-	"errors"
 	"hash/fnv"
 	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-playground/validator/v10"
 )
 
 // LoginRequest is the JSON body of POST /v1/auth/login.
@@ -22,10 +20,18 @@ type LoginResponse struct {
 	ExpiresIn int    `json:"expires_in"`
 }
 
-// StubCode is the only accepted SMS code in Sprint 0. Real SMS provider
-// lands Sprint 1+ (see docs/handoff/sprint0/SUB-001-internal-auth.md §NOT
+// StubCode is the default SMS code accepted when Config.StubCode is empty.
+// Real SMS provider lands Sprint 1+ (see docs/handoff/sprint0/SUB-001-internal-auth.md §NOT
 // in scope).
 const StubCode = "1234"
+
+// effectiveStubCode returns the configured stub code, falling back to StubCode.
+func effectiveStubCode(cfg Config) string {
+	if cfg.StubCode == "" {
+		return StubCode
+	}
+	return cfg.StubCode
+}
 
 // LoginHandler returns the Gin handler for POST /v1/auth/login.
 //
@@ -40,15 +46,10 @@ func LoginHandler(cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req LoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			var ve validator.ValidationErrors
-			if errors.As(err, &ve) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
-				return
-			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
 			return
 		}
-		if req.Code != StubCode {
+		if req.Code != effectiveStubCode(cfg) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
 			return
 		}
