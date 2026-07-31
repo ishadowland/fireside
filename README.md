@@ -15,7 +15,7 @@ See:
 - [`STATUS.md`](./STATUS.md) — current phase & next steps
 - [`docs/requirements/`](./docs/requirements/) — requirements & decisions (D1–D25)
 - [`docs/design/`](./docs/design/) — architecture design (4 foundational docs)
-- [`docs/adr/`](./docs/adr/) — 18 architectural decision records
+- [`docs/adr/`](./docs/adr/) — 19 architectural decision records
 - [`docs/rfc/`](./docs/rfc/) — phase plans (Phase 1 in draft)
 - [`docs/reviews/`](./docs/reviews/) — gate checklists (PDCP)
 - [`docs/conversations/`](./docs/conversations/) — raw conversation archives

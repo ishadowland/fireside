@@ -5,7 +5,7 @@
 - **Out scope for**: An Android developer (Kotlin + Jetpack Compose + OkHttp WebSocket). No Go, no backend knowledge required.
 - **Depends on** (must already exist in `main`):
   - Nothing Go-specific. SUB-ANDROID is **fully independent** of the Go server.
-  - The only contract is: server exposes `ws://<host>:8080/ws/v1/connect` and expects the first frame to be `{"type":"auth.hello","token":"<jwt>"}`. Replies with `auth.welcome` or `auth.error`.
+  - The only contract is: server exposes `ws://<host>:18080/ws/v1/connect` and expects the first frame to be `{"type":"auth.hello","token":"<jwt>"}`. Replies with `auth.welcome` or `auth.error`.
 - **NOT in scope**: any UI beyond a single status screen. Login flow, room list, message UI — all Sprint 1+.
 
 ## What you deliver
@@ -77,7 +77,7 @@ sealed class WsEvent {
     data class Failure(val cause: Throwable) : WsEvent()
 }
 
-class WsClient(private val baseUrl: String) {  // e.g. "ws://10.0.2.2:8080"
+class WsClient(private val baseUrl: String) {  // e.g. "ws://10.0.2.2:18080"
     private val client = OkHttpClient()
     private var socket: WebSocket? = null
 
@@ -93,7 +93,7 @@ The URL format: `ws://<host>:<port>/ws/v1/connect`. For emulator → host, host 
 // ConnectActivity.kt
 //
 // UI: a single screen with:
-//   - TextField: WebSocket base URL (default "ws://10.0.2.2:8080/ws/v1/connect")
+//   - TextField: WebSocket base URL (default "ws://10.0.2.2:18080/ws/v1/connect")
 //   - TextField: JWT token (user pastes from `curl` output)
 //   - Button: "Connect & Hello"
 //   - Status text: shows current WsEvent
@@ -149,10 +149,10 @@ class ConnectActivity : ComponentActivity() {
 
 @Composable
 fun ConnectScreen() {
-    var url by remember { mutableStateOf("ws://10.0.2.2:8080/ws/v1/connect") }
+    var url by remember { mutableStateOf("ws://10.0.2.2:18080/ws/v1/connect") }
     var token by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<WsEvent>(WsEvent.Closed) }
-    val client = remember { WsClient("ws://10.0.2.2:8080") }  // base host:port only
+    val client = remember { WsClient("ws://10.0.2.2:18080") }  // base host:port only
 
     Column(...) {
         OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("WS URL") })
@@ -224,7 +224,7 @@ Manual acceptance on emulator:
 
 - [ ] `cd android && ./gradlew assembleDebug` exits 0
 - [ ] `cd android && ./gradlew installDebug` succeeds on an API 24+ emulator
-- [ ] Launching the app shows the Connect screen with default URL `ws://10.0.2.2:8080/ws/v1/connect`
+- [ ] Launching the app shows the Connect screen with default URL `ws://10.0.2.2:18080/ws/v1/connect`
 - [ ] Smoke test against running backend:
   1. Get token via curl from SUB-001
   2. Paste into app, tap Connect

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fireside Dashboard — 本地测试</title>
+  <link rel="stylesheet" href="/dashboard/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <h1>Fireside Dashboard</h1>
+      <span class="badge">local-only · 自动 stub 登录</span>
+    </header>
+
+    <section class="card">
+      <h2>1. 登录 (自动)</h2>
+      <div class="kv"><span>状态</span><code id="login-status">…</code></div>
+      <div class="kv"><span>phone</span><code id="login-phone">…</code></div>
+      <div class="kv"><span>JWT</span><code id="login-token" class="token">…</code></div>
+    </section>
+
+    <section class="card">
+      <h2>2. WebSocket 连接</h2>
+      <div class="kv"><span>WS URL</span><code id="ws-url">…</code></div>
+      <div class="kv"><span>状态</span><code id="ws-status">closed</code></div>
+      <div class="row">
+        <button id="connect-btn" disabled>Connect &amp; Hello</button>
+        <button id="disconnect-btn" disabled>Disconnect</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. 事件日志</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script src="/dashboard/static/app.js"></script>
+</body>
+</html>

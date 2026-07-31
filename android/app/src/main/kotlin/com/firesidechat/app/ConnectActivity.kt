@@ -37,7 +37,7 @@ class ConnectActivity : ComponentActivity() {
 
 @Composable
 fun ConnectScreen() {
-    var url by remember { mutableStateOf("ws://10.0.2.2:8080/ws/v1/connect") }
+    var url by remember { mutableStateOf("ws://10.0.2.2:18080/ws/v1/connect") }
     var token by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<WsEvent>(WsEvent.Closed) }
     var client by remember { mutableStateOf<WsClient?>(null) }

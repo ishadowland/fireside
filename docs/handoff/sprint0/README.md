@@ -42,12 +42,12 @@ make db.up
 make backend.run
 
 # 2. Get token
-TOKEN=$(curl -s -X POST localhost:8080/v1/auth/login \
+TOKEN=$(curl -s -X POST localhost:18080/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"phone":"+861****8000","code":"1234"}' | jq -r .token)
 
 # 3. Round-trip via wscat (SUB-003 proof)
-wscat -c "ws://localhost:8080/ws/v1/connect"
+wscat -c "ws://localhost:18080/ws/v1/connect"
 > {"type":"auth.hello","token":"$TOKEN"}
 < {"type":"auth.welcome","user_id":42,"jti":"...","server_time":1753...}
 

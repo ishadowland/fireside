@@ -169,7 +169,7 @@ The contract owner (Hermes / project owner) verifies ALL of these before signing
 - [ ] `go test ./internal/auth/...` passes all listed cases
 - [ ] `golangci-lint run ./internal/auth/...` exits 0 (only if `.golangci.yml` exists; otherwise skip)
 - [ ] Manual smoke: start the backend (`make backend.run`), then
-  `curl -X POST localhost:8080/v1/auth/login -H 'Content-Type: application/json' -d '{"phone":"+8613800138000","code":"1234"}'`
+  `curl -X POST localhost:18080/v1/auth/login -H 'Content-Type: application/json' -d '{"phone":"+8613800138000","code":"1234"}'`
   returns `{"token":"...","expires_in":900}` and HTTP 200
 - [ ] Same `curl` with `code:0000` returns 401
 - [ ] No other files modified outside `internal/auth/` and (optionally) `cmd/fireside/main.go`

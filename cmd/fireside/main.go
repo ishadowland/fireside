@@ -1,7 +1,7 @@
 // Package main is the Fireside backend entry point.
 //
 // Sprint 0 wires:
-//   - Gin HTTP server on :8080 (single port shared with WebSocket per ADR-0004)
+//   - Gin HTTP server on :18080 (single port shared with WebSocket per ADR-0004)
 //   - /healthz for liveness
 //   - POST /v1/auth/login mounted by internal/auth (SUB-001)
 //   - GET  /ws/v1/connect mounted by internal/ws (SUB-003)
@@ -25,6 +25,7 @@ import (
 
 	"github.com/ishadowland/fireside/internal/auth"
 	"github.com/ishadowland/fireside/internal/config"
+	"github.com/ishadowland/fireside/internal/dashboard"
 	wspkg "github.com/ishadowland/fireside/internal/ws"
 )
 
@@ -50,6 +51,10 @@ func main() {
 		JWTSecret:      cfg.JWTSecret,
 		AccessTokenTTL: cfg.JWTAccessTTL,
 		StubCode:       cfg.SMSStubCode,
+	})
+
+	dashboard.Mount(engine, dashboard.Config{
+		StubCode: cfg.SMSStubCode,
 	})
 
 	wspkg.Mount(engine, wspkg.Config{

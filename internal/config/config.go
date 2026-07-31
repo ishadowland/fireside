@@ -23,7 +23,7 @@ type Config struct {
 	JWTSecret      []byte        // pointer-first for alignment (fieldalign hint)
 	PostgresDSN    string
 	JWTAccessTTL   time.Duration
-	Port           string        // :8080 in dev
+	Port           string        // :18080 in dev
 	SMSStubCode    string        // default "1234" — read by SUB-001
 	LogLevel       slog.Level    // debug | info | warn | error
 }
@@ -32,7 +32,7 @@ type Config struct {
 // or malformed. Intended to be called once at startup.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Port:        getEnvDefault("PORT", "8080"),
+		Port:        getEnvDefault("PORT", "18080"),
 		LogLevel:    parseLogLevel(getEnvDefault("LOG_LEVEL", "info")),
 		SMSStubCode: getEnvDefault("SMS_STUB_CODE", "1234"),
 	}

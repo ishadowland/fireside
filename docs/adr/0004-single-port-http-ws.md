@@ -10,11 +10,11 @@ The Fireside server exposes REST endpoints (login, room CRUD, history query) and
 
 ## Decision
 
-**Single port.** Both REST (Gin) and WebSocket (gorilla/websocket) listen on `:8080`. Path routing differentiates them (`/ws/v1/...` is WS, everything else is REST). Nginx upstream sets the `Upgrade` header to bridge browsers to WS.
+**Single port.** Both REST (Gin) and WebSocket (gorilla/websocket) listen on `:18080`. Path routing differentiates them (`/ws/v1/...` is WS, everything else is REST). Nginx upstream sets the `Upgrade` header to bridge browsers to WS.
 
 ## Alternatives Considered
 
-- **Two ports** (e.g. `:8080` REST, `:8081` WS): rejected — doubles firewall config, doubles Nginx upstream blocks, doubles cert renewal. No real benefit since both are TLS-protected by Nginx anyway.
+- **Two ports** (e.g. `:18080` REST, `:18081` WS): rejected — doubles firewall config, doubles Nginx upstream blocks, doubles cert renewal. No real benefit since both are TLS-protected by Nginx anyway.
 
 ## Consequences
 

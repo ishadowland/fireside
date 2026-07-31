@@ -17,6 +17,13 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's done (since last status)
 
+### 本地测试 Dashboard(ADR-0019,2026-07-31)
+- ✅ **ADR-0019** — 本地测试 Dashboard:loopback-only、自动 stub 登录、零前端构建链(go:embed)。
+- ✅ **`internal/dashboard`** — 挂载 `/dashboard/`(回环 IP 限流)+ `/v1/dashboard/config`(下发 stub code)。
+- ✅ **免登录流程**:页面加载 → 自动 `GET /v1/dashboard/config` → `POST /v1/auth/login` → 展示 JWT → 点「Connect & Hello」→ `auth.hello` → `auth.welcome`。浏览器打开 `http://localhost:18080/dashboard/` 即可自测,无需 Android 模拟器。
+- ✅ 验证:单元测试(回环/远端 200/404、config 内容)+ 全链路 smoke(config → login → WS welcome 成功)。
+- 设计文档同步:`02-modules.md`(internal/dashboard 模块)。
+
 ### DeepTutor 借鉴(ADR-0015 → 0018,2026-07-31)
 - ✅ **ADR-0015** — Agent 结构化澄清:`agent.question`/`agent.answer` 帧,agent 一轮内挂起等异步答案,`question_timeout` 超时 + 级联取消。补齐「缺信息时怎么办」闭环。
 - ✅ **ADR-0016** — 三层可审计记忆(L1 trace / L2 facts / L3 profile,增补 ADR-0002):每条 agent 结论可溯源 L3→L2→L1,契合 D28。
@@ -41,7 +48,7 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 ### Subcontracts
 - ✅ **SUB-001** — `internal/auth/{jwt.go, handler.go, router.go, jwt_test.go, handler_test.go}` + `auth.Mount` wired into `main.go`. `cfg.JWTSecret`/`cfg.AccessTokenTTL` from `internal/config.Load()` (`78f5263`).
 - ✅ **SUB-ANDROID** — full Android project at `android/` with `ConnectActivity` + `WsClient.kt` + `WsEvent.kt` + Material 3 theme + adaptive launcher icon. `WsClientTest.kt` covers 4 pure-JVM parse-frame cases (`d3ffad8`).
-- ✅ **SUB-ANDROID fix (real smoke)** — `ConnectActivity` now actually uses the WS URL text field instead of a hardcoded `ws://10.0.2.2:8080` (`2b302eb`).
+- ✅ **SUB-ANDROID fix (real smoke)** — `ConnectActivity` now actually uses the WS URL text field instead of a hardcoded `ws://10.0.2.2:18080` (`2b302eb`).
 - ✅ **SUB-ANDROID build fix** — `Theme.Material3.DayNight.NoActionBar` → `Theme.DeviceDefault.Light.NoActionBar` (Material3 parent isn't a framework resource). Added `values-night/themes.xml` dark variant (`2b302eb`).
 - ✅ **SUB-003** — `internal/ws/{protocol.go, upgrader.go, first_frame.go, router.go, upgrader_test.go}` + `ws.Mount` wired into `main.go`. Close code 1008 enforced via `WriteControl(FormatCloseMessage(1008))` then `Close()` (`821d090`, `203829f`).
 

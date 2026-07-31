@@ -20,12 +20,12 @@ No business logic yet. No agents. No rooms. Just the wiring.
 
 ## Scope (in)
 
-- `cmd/fireside/main.go` boots Gin + Gorilla WS upgrade on `:8080`.
+- `cmd/fireside/main.go` boots Gin + Gorilla WS upgrade on `:18080`.
 - `internal/auth/` — JWT issue/validate (HS256, single secret from env).
 - `internal/ws/` — gorilla/websocket upgrader + first-frame dispatcher.
 - `db/migrations/0001_init.sql` — just `users(id, phone, created_at)` and `auth_tokens(jti, user_id, expires_at)` tables.
 - `db/queries/auth.sql` — sqlc-generated `GetUserByPhone`, `InsertToken`.
-- `android/app/` — single Compose activity that opens a WebSocket to `ws://10.0.2.2:8080/ws/v1/connect`, sends `auth.hello`, renders result.
+- `android/app/` — single Compose activity that opens a WebSocket to `ws://10.0.2.2:18080/ws/v1/connect`, sends `auth.hello`, renders result.
 - `Makefile` targets: `db.up`, `db.down`, `sqlc.generate`, `backend.run`, `android.install`.
 
 ## Scope (out)
@@ -61,7 +61,7 @@ fireside/
 
 | Slot | Task | Acceptance |
 |---|---|---|
-| Morning AM | `go mod init`, Gin boot, `/healthz` returns 200 | `curl localhost:8080/healthz` → 200 |
+| Morning AM | `go mod init`, Gin boot, `/healthz` returns 200 | `curl localhost:18080/healthz` → 200 |
 | Morning AM | Postgres via docker-compose, golang-migrate applies `0001_init.sql` | `make db.up` succeeds, `psql` shows tables |
 | Morning AM | sqlc generates `internal/store/`, `InsertUser/GetUserByPhone` callable | unit test passes |
 | Midday | `internal/auth/` — HS256 JWT issue + validate | unit test passes (sign → parse → verify roundtrip) |
@@ -76,7 +76,7 @@ Phase 1 only graduates to Phase 2 when ALL of these are true:
 
 - [ ] `make backend.run` boots without errors
 - [ ] `make db.up && make db.down` is clean (idempotent)
-- [ ] `curl localhost:8080/healthz` returns 200
+- [ ] `curl localhost:18080/healthz` returns 200
 - [ ] `wscat` connects to `/ws/v1/connect` and roundtrips `auth.hello` → `auth.welcome`
 - [ ] Android emulator shows "✅ connected" after sending the frame
 - [ ] All endpoints appear in `docs/api/openapi.yaml`

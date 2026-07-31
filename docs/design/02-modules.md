@@ -192,6 +192,11 @@ android/
 - **手机号格式校验**(E.164)
 - token 通过 HTTP-only cookie 或 `Authorization: Bearer` 头传递
 
+### `internal/dashboard` (本地测试,ADR-0019)
+- `go:embed` 内嵌静态页(HTML/CSS/原生 JS),挂载 `/dashboard/`,**loopback-only**(非回环 IP 一律 404)
+- 页面自动 `GET /v1/dashboard/config` 取 stub code → `POST /v1/auth/login` 免登录拿 JWT → 点「Connect & Hello」连 WS 并自动发 `auth.hello`
+- 功能对齐安卓 App Sprint 0:WS 地址/JWT 展示、连接按钮、状态面板(welcome/error)、事件日志
+
 ### `internal/sms`
 - **接口设计**:
   ```go
@@ -210,7 +215,7 @@ android/
 - 配置项(对应 `.env.example`):
   ```yaml
   server:
-    http_addr: "0.0.0.0:8080"   # 单端口承载 REST + WS(ADR-0004)
+    http_addr: "0.0.0.0:18080"  # 单端口承载 REST + WS(ADR-0004)
   database:
     dsn: "postgres://..."       # POSTGRES_DSN
   auth:
@@ -299,7 +304,7 @@ android/
 
 **Q1**: HTTP + WebSocket 单端口还是双端口?
 
-**已决议(2026-07-26)**: **单端口**(Gin 路由 + gorilla/WS 共用 8080)
+**已决议(2026-07-26)**: **单端口**(Gin 路由 + gorilla/WS 共用 18080)
 - Gin: `/ws/v1` → gorilla/WS;其他 → REST API
 - Nginx: `location /ws/ { proxy_http_version 1.1; proxy_set_header Upgrade ...; proxy_read_timeout 3600s; }`
 - 优势:Android 端只配 1 个 base URL,部署/证书/防火墙都简单

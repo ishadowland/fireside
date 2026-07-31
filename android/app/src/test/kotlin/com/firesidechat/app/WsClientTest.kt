@@ -24,7 +24,7 @@ class WsClientTest {
             .put("server_time", 1722000000L)
             .toString()
 
-        val client = WsClient("ws://localhost:8080")
+        val client = WsClient("ws://localhost:18080")
         // Use reflection to invoke parseFrame — it is private by design.
         val method = client.javaClass.getDeclaredMethod("parseFrame", String::class.java)
         method.isAccessible = true
@@ -44,7 +44,7 @@ class WsClientTest {
             .put("error", "JWT expired")
             .toString()
 
-        val client = WsClient("ws://localhost:8080")
+        val client = WsClient("ws://localhost:18080")
         val method = client.javaClass.getDeclaredMethod("parseFrame", String::class.java)
         method.isAccessible = true
         val event = method.invoke(client, frame) as WsEvent
@@ -59,7 +59,7 @@ class WsClientTest {
     fun `unknown frame type yields bad_frame error`() {
         val frame = JSONObject().put("type", "system.ping").toString()
 
-        val client = WsClient("ws://localhost:8080")
+        val client = WsClient("ws://localhost:18080")
         val method = client.javaClass.getDeclaredMethod("parseFrame", String::class.java)
         method.isAccessible = true
         val event = method.invoke(client, frame) as WsEvent
@@ -71,7 +71,7 @@ class WsClientTest {
 
     @Test
     fun `malformed JSON yields bad_frame error`() {
-        val client = WsClient("ws://localhost:8080")
+        val client = WsClient("ws://localhost:18080")
         val method = client.javaClass.getDeclaredMethod("parseFrame", String::class.java)
         method.isAccessible = true
         val event = method.invoke(client, "not json") as WsEvent

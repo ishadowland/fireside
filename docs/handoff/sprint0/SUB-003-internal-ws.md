@@ -223,8 +223,8 @@ If main.go doesn't exist, skip this step.
 - [ ] `go test ./...` exits 0 (no regression in SUB-001 tests)
 - [ ] Manual smoke:
   - Start backend (`make backend.run`)
-  - Get a token: `curl -X POST localhost:8080/v1/auth/login -H 'Content-Type: application/json' -d '{"phone":"+8613800138000","code":"1234"}'`
-  - Connect via wscat: `wscat -c "ws://localhost:8080/ws/v1/connect"`
+  - Get a token: `curl -X POST localhost:18080/v1/auth/login -H 'Content-Type: application/json' -d '{"phone":"+8613800138000","code":"1234"}'`
+  - Connect via wscat: `wscat -c "ws://localhost:18080/ws/v1/connect"`
   - First frame: `{"type":"auth.hello","token":"<token>"}`
   - Expected reply: `{"type":"auth.welcome","user_id":<number>,"jti":"...","server_time":<unix>}`
 - [ ] No files modified outside `internal/ws/` and (optionally) `cmd/fireside/main.go`
