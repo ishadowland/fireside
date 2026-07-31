@@ -8,12 +8,12 @@
 ### Endpoint
 
 ```
-wss://<your-vps-domain>/ws/v1?token=<JWT>
+wss://<your-vps-domain>/ws/v1/connect
 ```
 
 - TLS 1.3 强制(由 Nginx 终结)
-- JWT 放在 query string(简化移动端首次连接)
-- 后续消息帧里也允许 `auth_token` 字段,**两端校验,任一缺失拒绝**
+- **WS upgrade 本身不鉴权**(ADR-0007):JWT 不放在 URL,避免泄漏进 Nginx access log / 浏览器历史
+- 鉴权走**首个 frame** `auth.hello`(见下节):升级后 5s 内必须发送,超时服务器以 1008 关闭
 
 ### 连接生命周期
 
@@ -68,13 +68,13 @@ wss://<your-vps-domain>/ws/v1?token=<JWT>
 }
 ```
 
-**失败后服务端主动关闭连接**(close code 4401)。
+**失败后服务端主动关闭连接**(close code **1008** policy violation;见 ADR-0007)。
 
 ### 心跳
 
 - 服务端每 30s 发 `ping` 帧(JSON envelope `type: "system.ping"`)
 - 客户端必须在 10s 内回 `pong`(`type: "system.pong"`)
-- 60s 内无任何消息帧:服务端主动关闭(close code 4408)
+- 60s 内无任何消息帧:服务端主动关闭(close code **1008** policy violation;与 ADR-0007 同一套标准码理由)
 
 ## 消息帧 Schema
 
@@ -122,6 +122,9 @@ interface ErrorPayload {
 | `hand.update` | S→C | 举手状态变化(推送大厅里的所有人) |
 | `agent.trigger` | C→S | 主动触发工具型 agent |
 | `agent.respond` | S→C | agent 回复(走 msg.created 流程,但 sender_kind=agent) |
+| `agent.question` | S→C | agent 结构化澄清问题,挂起本轮等答案(ADR-0015) |
+| `agent.answer` | C→S | 对 agent.question 的异步回答,答案落回消息流(ADR-0015) |
+| `agent.progress` | S→C | 长轮次的进度叙述 / 一行式工具线索,可折叠(ADR-0017) |
 | `workspace.commit` | C→S | agent 提交 MD 文件变更 |
 | `workspace.merge` | C→S | host 触发合并所有 unmerged branches |
 | `workspace.state` | S→C | 工作区状态变化(branch 新增/commit/merge) |
@@ -341,6 +344,52 @@ agent 输出的消息走**普通 `msg.created` 流程**,但 `sender.kind = "agen
 }
 ```
 
+### 9. Agent 结构化澄清:`agent.question` / `agent.answer`
+
+> 见 ADR-0015。agent 一轮内至多问一次,挂起本轮等答案,不阻塞房间。
+
+```json
+// S→C,提问
+{
+  "type": "agent.question",
+  "id": "agent-round-uuid",
+  "payload": {
+    "question_id": "q-abc123",
+    "kind": "single_choice",
+    "prompt": "这个需求是要「现状澄清」还是「方案评审」?",
+    "options": ["现状澄清", "方案评审", "两者都要"],
+    "target": "everyone"
+  }
+}
+
+// C→S,回答(答案落回普通消息流,reply_to=提问消息)
+{
+  "type": "agent.answer",
+  "payload": {
+    "question_id": "q-abc123",
+    "choice_ids": ["方案评审"]
+  }
+}
+```
+
+服务器校验 question_id 有对应 pending 提问且提问 agent 仍在 on_stage;answer 到达后回调 driver 继续本轮。超时(room config `question_timeout`,默认 6h)或 room ended 会关闭 pending。
+
+### 10. Agent 进度叙述:`agent.progress`
+
+> 见 ADR-0017。替代单一静态占位,长轮次期间投递 0..N 条进度;`tool_hint` 由房间开关 `SendToolHints` 控制。
+
+```json
+{
+  "type": "agent.progress",
+  "payload": {
+    "round_id": "agent-round-uuid",
+    "seq": 1,
+    "text": "正在检索 workspace 中的相关文档…",
+    "tool_hint": "rag(query=\"合并策略\")"
+  }
+}
+```
+
 ## 路由规则(决策表)
 
 ### 收到 `msg.send` 后
@@ -351,6 +400,15 @@ agent 输出的消息走**普通 `msg.created` 流程**,但 `sender.kind = "agen
 | mentions 含非 participant ID | reject `invalid_mention` |
 | 房间已 ended | reject `room_ended` |
 | 通过校验 | persist + ack + broadcast + trigger |
+
+### 收到 `agent.answer` 后
+
+| 条件 | 动作 |
+|---|---|
+| question_id 无对应 pending 提问 | reject `unknown_question` |
+| 提问 agent 已下麦 / 房间已 ended | 丢弃 + 记日志 |
+| 同一房间同一 agent 已有 pending 提问且又发 agent.question | reject `rate_limited` |
+| 通过校验 | persist(ContentType=answer)+ 回调 agent driver 继续 |
 
 ### 收到 mention 一个 agent
 
@@ -372,8 +430,8 @@ for each active agent in room, every N seconds:
         dispatch as if @ mention
 ```
 
-**频率控制**:每个 active agent **最多每 30s 触发 1 次**(防刷)。
-**MVP 暂不实现定时轮询**,只在收到新消息后做一次决策(简化)。
+**频率控制**:每个 active agent **至少 20 秒内最多决策 1 次**(防刷,ADR-0008 的 debounce)。
+**双触发(ADR-0008)**:**新消息触发 + 每 1 分钟定时轮询**都要——两条路径都调同一个 `agent.ShouldRespond(ctx, recent_msgs)` 决策函数(见下「Q2 已决议」)。
 
 ## 错误码
 
@@ -382,6 +440,7 @@ for each active agent in room, every N seconds:
 | `invalid_token` | JWT 无效 | false |
 | `not_on_stage` | 发言者未上麦 | false |
 | `invalid_mention` | @ 了不存在的 participant | false |
+| `unknown_question` | agent.answer 引用的 question_id 不存在/已过期(ADR-0015) | false |
 | `room_ended` | 房间已结束 | false |
 | `room_full` | 房间已满 | false |
 | `not_host` | 需要主持人权限 | false |
@@ -430,7 +489,7 @@ GET /v1/rooms/{room_id}/messages?before={msg_id}&limit=50
 
 | 资源 | 限制 | 超限响应 |
 |---|---|---|
-| WebSocket 帧大小 | 64 KB | close 4409 |
+| WebSocket 帧大小 | 64 KB | close **1009** (message too big) |
 | 每用户每分钟发送消息数 | 60 | `rate_limited` |
 | 每房间每分钟消息数 | 300 | `rate_limited` |
 | 单 agent 每小时响应数 | 100 | 不触发响应(静默丢弃) |
@@ -444,7 +503,7 @@ GET /v1/rooms/{room_id}/messages?before={msg_id}&limit=50
 **已决议(2026-07-26)**: **首个 frame**(`auth.hello`)
 - 优势:JWT 不在 URL(server log 不会泄漏);重连清晰;鉴权失败可发 JSON 错误后 close
 - Android 端:OkHttp `onOpen` 时发 hello 帧,`onMessage` 第一帧期望 auth.welcome/error
-- 服务端鉴权失败 → 发 `auth.error` + close(4401)→ 客户端弹"重新登录"
+- 服务端鉴权失败 → 发 `auth.error` + close(1008)→ 客户端弹"重新登录"
 
 **Q2**: active agent 的"插话决策"触发时机?
 

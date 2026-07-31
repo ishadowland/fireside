@@ -17,6 +17,13 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's done (since last status)
 
+### DeepTutor 借鉴(ADR-0015 → 0018,2026-07-31)
+- ✅ **ADR-0015** — Agent 结构化澄清:`agent.question`/`agent.answer` 帧,agent 一轮内挂起等异步答案,`question_timeout` 超时 + 级联取消。补齐「缺信息时怎么办」闭环。
+- ✅ **ADR-0016** — 三层可审计记忆(L1 trace / L2 facts / L3 profile,增补 ADR-0002):每条 agent 结论可溯源 L3→L2→L1,契合 D28。
+- ✅ **ADR-0017** — 进度叙述 + 工具线索(增补 ADR-0009):`agent.progress` 折叠步骤,`SendProgress`/`SendToolHints` 房间开关。
+- ✅ **ADR-0018** — Workspace 合并输出逐处(hunk)结构化 diff(增补 D23/D24):`MergeDiffSummary.Hunks`,摘要 agent 按 hunk 注解。
+- 设计文档同步:`03-protocol.md`(新帧 + 路由表 + 错误码)、`01-data-model.md`(ContentType/记忆结构/MergeHunk)、`02-modules.md`(Driver 接口)、`04-state-machines.md`(awaiting_clarification 态)。
+
 ### Sprint 0 doc batch
 - ✅ **ADR-0014** — `user_id` is `int64` in Sprint 0, migrates to ULID at Sprint 1 (`1078a1e`)
 - ✅ **ADR-0007 (amendment)** — WS close code on auth failure is RFC 6455 `1008`, not `4001` (`1078a1e`)
@@ -59,7 +66,7 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's deferred
 
-- **CI lint enforcement** — `.github/workflows/ci.yml` has `golangci-lint` uncommented locally. Push blocked by GitHub OAuth scope. Owner must push via PAT (workflow scope) or via GitHub web UI.
+- ~~**CI lint enforcement**~~ — ✅ done: `golangci-lint-action@v6` uncommented in `.github/workflows/ci.yml`; `go mod tidy` now verified via `git diff --exit-code`; migrate steps invoke the binary directly (CI has no `.env`). Push still blocked by GitHub OAuth scope — owner must push via PAT (workflow scope) or via GitHub web UI.
 
 ## What's next (Sprint 1 kickoff)
 

@@ -9,13 +9,13 @@ Fireside is an async-first roundtable platform where a human host can pull in ot
 
 ## Status
 
-🚧 **Phase 1 — Sprint 0 in progress.** Backend skeleton being implemented via 3 parallel subcontracts (see [`docs/handoff/sprint0/`](./docs/handoff/sprint0/)). Owner prep complete: Gin + `/healthz`, `users`/`auth_tokens` schema, `internal/store/` sqlc output, `.golangci.yml`. Wave 1 (SUB-001 + SUB-ANDROID) dispatched.
+🚧 **Phase 1 — Sprint 0 complete.** Hello-world verified end-to-end (backend + Android emulator): POST /v1/auth/login → JWT → WS auth.hello → auth.welcome. See [Sprint 0 subcontracts](./docs/handoff/sprint0/). Owner prep complete: Gin + `/healthz`, `users`/`auth_tokens` schema, `internal/store/` sqlc output, `.golangci.yml`.
 
 See:
 - [`STATUS.md`](./STATUS.md) — current phase & next steps
 - [`docs/requirements/`](./docs/requirements/) — requirements & decisions (D1–D25)
 - [`docs/design/`](./docs/design/) — architecture design (4 foundational docs)
-- [`docs/adr/`](./docs/adr/) — 12 architectural decision records
+- [`docs/adr/`](./docs/adr/) — 18 architectural decision records
 - [`docs/rfc/`](./docs/rfc/) — phase plans (Phase 1 in draft)
 - [`docs/reviews/`](./docs/reviews/) — gate checklists (PDCP)
 - [`docs/conversations/`](./docs/conversations/) — raw conversation archives

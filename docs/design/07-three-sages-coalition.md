@@ -115,7 +115,7 @@ If extreme mode is active and 3:0 is not reached, the system **does not** fall b
 
 - Suspend the conclusion.
 - Emit a structured "blocked" message identifying the dissenting node(s) and their stated reasons.
-- Push a Feishu/Telegram notification to the host asking for human intervention.
+- Push an **in-app notification** to the host asking for human intervention(Fireside 是自建平台,不依赖 Feishu/Telegram 等外部 IM;主机离线时靠 Android 通知栏)。
 - Wait for the host to either: reframe the question, override with a recorded `host_override`, or cancel.
 
 This is the EVA *Air* outcome in software: the system refuses to launder a partial consensus into a "unanimous" decision.

@@ -8,8 +8,8 @@
 ```
 fireside/
 ├── cmd/
-│   ├── server/             ← 主服务入口 (HTTP + WebSocket)
-│   └── fsc/                ← CLI 工具 (fireside command family)
+│   ├── fireside/            ← 主服务入口 (HTTP + WebSocket)
+│   └── fsc/                 ← CLI 工具 (fireside command family)
 ├── internal/
 │   ├── domain/             ← 领域模型 + 业务规则 (无外部依赖)
 │   ├── store/              ← 持久化层 (sqlc 生成的代码 + repository 包装)
@@ -20,7 +20,7 @@ fireside/
 │   ├── workspace/          ← 共享 MD 工作区 (go-git 内嵌)
 │   ├── auth/               ← 手机号验证码 + JWT
 │   ├── sms/                ← 短信网关 (Twilio / 阿里云)
-│   ├── config/             ← 配置加载 (YAML)
+│   ├── config/             ← 配置加载 (env)
 │   └── logging/            ← slog wrapper
 ├── migrations/             ← golang-migrate SQL 文件
 ├── web/                    ← (未来) 静态资源 + 管理后台
@@ -61,7 +61,7 @@ android/
 
 ```
         ┌─────────────────────────┐
-        │   cmd/server (入口)     │
+        │   cmd/fireside (入口)   │
         └───────────┬─────────────┘
                     │
         ┌───────────▼─────────────┐
@@ -103,8 +103,7 @@ android/
 ### `internal/api` (HTTP)
 - Gin router 配置
 - REST endpoints(用于配置管理、归档查询等非实时操作):
-  - `POST /v1/auth/login` — 发起验证码
-  - `POST /v1/auth/verify` — 校验验证码,返回 JWT
+  - `POST /v1/auth/login` — 手机号 + 验证码,返回 JWT(**单端点**;Sprint 0/1 用 stub code,真实短信服务商 Phase 2 再拆「发码/校验」两段)
   - `GET  /v1/rooms` — 当前用户的房间列表
   - `POST /v1/rooms` — 创建房间
   - `GET  /v1/rooms/:id` — 房间详情
@@ -155,6 +154,12 @@ android/
   type Driver interface {
       Kind() AgentType
       Respond(ctx context.Context, req RespondRequest) (Response, error)
+      // ADR-0015: 结构化澄清 —— 返回后 driver 进入 awaiting_clarification,
+      // 服务器回调 ResumeAfterAnswer(ctx, answer) 继续本轮。
+      Ask(ctx context.Context, q Question) (QuestionID, error)
+      ResumeAfterAnswer(ctx context.Context, answer Answer) (Response, error)
+      // ADR-0017: 长轮次进度叙述/工具线索,0..N 次,按 seq 单调。
+      EmitProgress(ctx context.Context, p Progress) error
   }
   ```
 - 三个实现:
@@ -201,29 +206,23 @@ android/
 - 启动时按 config 选实现
 
 ### `internal/config`
-- 用 `spf13/viper` 加载 `config.yaml`
-- 配置项:
+- **全部从环境变量加载**(env 实现见 `internal/config`,单端口走 ADR-0004);Phase 2 配置项膨胀再评估 viper/YAML
+- 配置项(对应 `.env.example`):
   ```yaml
   server:
-    http_addr: "0.0.0.0:8080"
-    ws_addr: "0.0.0.0:8081"   # 可与 http 同端口,用 path 区分
+    http_addr: "0.0.0.0:8080"   # 单端口承载 REST + WS(ADR-0004)
   database:
-    dsn: "postgres://..."
-  sms:
-    provider: "aliyun"
-    aliyun:
-      access_key: "${ALIYUN_ACCESS_KEY}"
-      secret: "${ALIYUN_SECRET}"
-      sign_name: "Fireside"
-      template_id: "SMS_xxx"
-  jwt:
-    secret: "${JWT_SECRET}"
-    expiry_hours: 720  # 30 天
-  agents:
-    poll_interval_seconds: 60  # active agent 轮询间隔
-    max_concurrent_responses: 5 # 同时响应的 agent 数上限
+    dsn: "postgres://..."       # POSTGRES_DSN
+  auth:
+    jwt_secret: "${JWT_SECRET}"
+    access_ttl_min: 15          # JWT_ACCESS_TTL_MIN
+    stub_code: "1234"           # SMS_STUB_CODE(Sprint 0/1;真实短信 Phase 2)
+  logging:
+    level: "info"               # LOG_LEVEL
+  # Phase 2+(真实短信服务商):SMS_PROVIDER / SMS_ALIYUN_KEY / ... 
+  # Phase 2+(多实例):REDIS_URL(ADR-0013 触发器)
   ```
-- 敏感字段从环境变量读(`.env` 文件)
+- 敏感字段只在 `.env`(已 gitignore),不入库
 
 ## 关键数据流:用户发一条消息
 

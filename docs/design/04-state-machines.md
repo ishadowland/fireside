@@ -128,7 +128,17 @@
    ┌──────────────┐
    │  ready       │ ◄── Respond() ──► responding ──► ready
    └──────┬───────┘
-          │ 房间 ended / server shutdown
+          │                        │
+          │  Respond() 中发        │
+          │  agent.question        │
+          ▼                        ▼
+   ┌──────────────┐            (继续本轮)
+   │  awaiting_   │ ◄──── agent.answer 到达 / 超时(question_timeout)
+   │  clarifi-    │ ──── 回调 driver continuation ──► responding ──► ready
+   │  cation      │
+   │  (ADR-0015)  │
+   └──────┬───────┘
+          │ 房间 ended / agent 下麦 → 级联取消 pending
           ▼
    ┌──────────────┐
    │  shutting    │
@@ -291,17 +301,14 @@
    ┌──────────────┐
    │ (未登录)      │
    └──────┬───────┘
-          │ 输入手机号 → POST /v1/auth/login
-          ▼
-   ┌──────────────┐
-   │  awaiting_otp│ ─── 60s 内未验证 ──► (超时)
-   └──────┬───────┘
-          │ POST /v1/auth/verify (6 位数字)
+          │ POST /v1/auth/login {phone, code}
           ├── 成功 ──► logged_in (返回 JWT)
-          └── 失败 ──► (允许重试 5 次)
+          └── 失败 ──► (可重试,无次数硬限制)
 ```
 
-**MVP 简化**:
+**MVP 简化(Sprint 0/1)**:
+- **单端点** `POST /v1/auth/login` 一步返回 JWT(Stub code,无真实 OTP)。
+- Phase 2 接入真实短信服务商后,再拆回两段式:`login`(发验证码)→ `awaiting_otp`(60s 超时、5 次重试)→ `verify`(校验返 JWT)。
 - 不存 session 表,JWT stateless
 - "登录态"在客户端 = 持有有效 JWT
 - 服务端不维护"在线用户列表"(WebSocket 连接自带)

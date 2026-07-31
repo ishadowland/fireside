@@ -230,9 +230,12 @@ const (
 
 type ContentType string
 const (
-    ContentText   ContentType = "text"
-    ContentImage  ContentType = "image"
-    ContentSystem ContentType = "system"
+    ContentText    ContentType = "text"
+    ContentImage   ContentType = "image"
+    ContentSystem  ContentType = "system"
+    ContentQuestion ContentType = "question" // ADR-0015 agent 结构化澄清
+    ContentAnswer  ContentType = "answer"    // ADR-0015 对 question 的异步回答
+    ContentProgress ContentType = "progress" // ADR-0017 长轮次进度叙述
 )
 ```
 
@@ -405,9 +408,20 @@ type MergeDiffSummary struct {
     TotalAdditions       int             `json:"total_additions"`
     TotalDeletions       int             `json:"total_deletions"`
     PerBranchCommits     map[string]int  `json:"per_branch_commits"`  // branch → commit count
-    HumanReadable        string          `json:"human_readable"`       // AI 生成的摘要 (Phase 2)
+    Hunks                []MergeHunk     `json:"hunks"`               // ADR-0018 逐处变更
+    Truncated            bool            `json:"truncated"`           // hunks 超过上限被截断
+    HumanReadable        string          `json:"human_readable"`      // AI 生成的摘要 (Phase 2)
     GeneratedByAgentID   string          `json:"generated_by_agent_id"` // 哪个 custom agent 生成的
     GeneratedAt          *time.Time      `json:"generated_at,omitempty"`
+}
+
+type MergeHunk struct {
+    File         string `json:"file"`
+    ChangeType   string `json:"change_type"`    // insert | modify | delete
+    Before       string `json:"before,omitempty"` // 摘录
+    After        string `json:"after,omitempty"`  // 摘录
+    SourceBranch string `json:"source_branch"`
+    Note         string `json:"note,omitempty"`   // 摘要 agent 按 hunk 的注解(可空)
 }
 ```
 
@@ -491,11 +505,12 @@ import (
 **已决议(2026-07-26)**: **文件系统**(路径 `/var/fireside/agents/<agent_id>/memory/`)
 - 理由:lobster agent(OpenClaw/Hermes)原生读文件系统,零适配
 - MVP 单租户,无多实例文件同步问题
-- 文件结构:
+- 文件结构(已被 ADR-0016 升级为三层可审计管线 L1→L2→L3):
   ```
-  facts.json           # 长期事实(用户偏好 / 项目术语)
-  conversations/       # 历史快照(每房间一份 markdown)
-  index.json           # 索引(房间 → 文件映射)
+  trace/            # L1 · 原始轨迹(append-only JSONL,逐行 seq)
+  facts/            # L2 · 按房间整理的事实(每条引用 L1 行号)
+  profile/          # L3 · 跨房间综合画像(每条引用 L2)
+  index.json        # 索引(房间 → 文件映射 + 引用链)
   ```
 - 由 Fireside 服务端管理目录生命周期(agent 创建/删除时建/清)
 
