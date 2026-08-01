@@ -225,8 +225,9 @@ components:
           type: string
           const: auth.welcome
         user_id:
-          type: integer
-          format: int64
+          type: string
+          description: 26-char ULID (ADR-0014)
+          example: "01HXYZABCDEFGHJKMNPQRSTVWXZ"
         jti:
           type: string
         server_time:

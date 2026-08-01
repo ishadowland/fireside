@@ -8,15 +8,18 @@ import (
 	"github.com/google/uuid"
 )
 
+// User is the users table row. ID is the canonical 26-char ULID string
+// (ADR-0014) — see auth.Issue + handler.resolveUserID for the
+// generation side.
 type User struct {
-	ID        int64
+	ID        string
 	Phone     string
 	CreatedAt sql.NullTime
 }
 
 type AuthToken struct {
 	Jti       uuid.UUID
-	UserID    int64
+	UserID    string
 	ExpiresAt sql.NullTime
 	CreatedAt sql.NullTime
 }

@@ -1,7 +1,7 @@
 # ADR-0014: `user_id` is `int64` in Sprint 0, migrates to ULID at Sprint 1
 
-- **Status**: Accepted
-- **Date**: 2026-07-27
+- **Status**: Accepted (amended 2026-08-01 — Sprint 1-3 executed)
+- **Date**: 2026-07-27 (amended 2026-08-01)
 - **Source**: docs/design/01-data-model.md, docs/design/03-protocol.md, docs/handoff/sprint0/
 
 ## Context
@@ -59,3 +59,15 @@ The Sprint 1 trigger is the **first time a real `users` table is created** (the 
 - docs/handoff/sprint0/SUB-001-internal-auth.md §Interface contract (Sprint 0 int64)
 - docs/handoff/sprint0/SUB-003-internal-ws.md §Interface contract (Sprint 0 int64)
 - docs/handoff/sprint0/SUB-ANDROID-connect-activity.md §Interface contract (Sprint 0 Long)
+
+## Amendment (2026-08-01 — Sprint 1-3 executed)
+
+Sprint 1-3 ("First ULID migration per ADR-0014") landed on 2026-08-01. Concrete changes:
+
+- **Schema**: `db/migrations/0002_users_ulid.sql` drops & recreates `users(id CHAR(26))` and `auth_tokens(user_id CHAR(26) FK)` per the ADR's "effectively DROP TABLE" guidance. The Sprint 0/1-1/1-2 BIGINT rows are not production-meaningful, so a destructive migration is acceptable.
+- **Go type choice**: `string` throughout (`store.User.ID`, `store.AuthToken.UserID`, `auth.Claims.UserID`, `ws.AuthWelcome.UserID`, `ws.OnAuthenticated userID`). ADR explicitly allows this ("`ulid.ULID` ... or `string` if sqlc codegen is easier"); we picked string because the store layer is hand-written sqlc-equivalent and a single `string` keeps the boundary flat. The DB's `CHAR(26)` constraint and a regex helper in tests (`isULID`) act as defensive validation; oklog/ulid/v2 is the sole generator and its `.String()` output is the canonical 26-char Crockford form.
+- **Wire format**: `auth.welcome.user_id` is now a JSON string (was int64). Android `WsEvent.Welcome.userId` matches (`String` not `Long`). `docs/api/openapi.yaml` updated.
+- **`deriveStubUserID` removed**: replaced by `auth.newULID()` calling `ulid.Make().String()`. Determinism per phone still holds (the phone UNIQUE index ensures re-login finds the same user row → same ULID).
+- **Android**: `android/app/src/.../WsClient.kt` parses `user_id` via `optString`; `WsClientTest` assertion updated to a sample ULID.
+
+Verified: `go build ./...`, `go test -race ./...`, `golangci-lint run ./...`, `./gradlew assembleDebug test` all green.

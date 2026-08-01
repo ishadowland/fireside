@@ -30,7 +30,7 @@ RETURNING id, phone, created_at
 `
 
 type InsertUserParams struct {
-	ID    int64
+	ID    string
 	Phone string
 }
 
@@ -49,7 +49,7 @@ RETURNING jti, user_id, expires_at, created_at
 
 type InsertTokenParams struct {
 	Jti       uuid.UUID
-	UserID    int64
+	UserID    string
 	ExpiresAt sql.NullTime
 }
 

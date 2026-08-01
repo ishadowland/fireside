@@ -46,8 +46,8 @@ type Config struct {
 
 	// OnAuthenticated is called AFTER auth.welcome is sent. Sprint 0
 	// stub: just log. Sprint 1+ will register the conn in the per-room
-	// hub here.
-	OnAuthenticated func(userID int64, jti string, conn *websocket.Conn)
+	// hub here. userID is a 26-char ULID string (ADR-0014).
+	OnAuthenticated func(userID string, jti string, conn *websocket.Conn)
 
 	// Tokens enables jti replay defense. nil = check skipped (tests).
 	Tokens TokenLookup
@@ -64,7 +64,7 @@ func HandleConnect(cfg Config) gin.HandlerFunc {
 		panic("ws.HandleConnect: JWTSecret is required")
 	}
 	if cfg.OnAuthenticated == nil {
-		cfg.OnAuthenticated = func(uid int64, jti string, _ *websocket.Conn) {
+		cfg.OnAuthenticated = func(uid string, jti string, _ *websocket.Conn) {
 			slog.Info("ws authenticated (no callback wired)", "user_id", uid, "jti", jti)
 		}
 	}

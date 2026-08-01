@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,11 @@ import (
 
 	"github.com/ishadowland/fireside/internal/store"
 )
+
+// isULID matches the canonical 26-char Crockford ULID form.
+var ulidPattern = regexp.MustCompile(`^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$`)
+
+func isULID(s string) bool { return ulidPattern.MatchString(s) }
 
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
@@ -117,8 +123,11 @@ func TestLoginHandlerHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issued token failed Validate: %v", err)
 	}
-	if claims.UserID == 0 {
-		t.Error("claims.UserID should be non-zero for a known phone")
+	if claims.UserID == "" {
+		t.Error("claims.UserID should be non-empty for a known phone")
+	}
+	if !isULID(claims.UserID) {
+		t.Errorf("claims.UserID = %q, want valid 26-char ULID", claims.UserID)
 	}
 }
 
@@ -183,7 +192,7 @@ func TestLoginHandlerDeterministicUserID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c1.UserID != c2.UserID {
-		t.Errorf("UserID should be deterministic; got %d then %d", c1.UserID, c2.UserID)
+		t.Errorf("UserID should be deterministic; got %q then %q", c1.UserID, c2.UserID)
 	}
 }
 

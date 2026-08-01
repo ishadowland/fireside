@@ -72,7 +72,7 @@ func main() {
 			// allow-list via CORS_ALLOWED_ORIGINS env (deferred).
 			return true
 		},
-		OnAuthenticated: func(uid int64, jti string, _ *websocket.Conn) {
+		OnAuthenticated: func(uid string, jti string, _ *websocket.Conn) {
 			slog.Info("ws authenticated", "user_id", uid, "jti", jti)
 		},
 		Tokens: queries, // Sprint 1-2: jti replay defense

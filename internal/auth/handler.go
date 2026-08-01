@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"hash/fnv"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/oklog/ulid/v2"
 
 	"github.com/ishadowland/fireside/internal/store"
 )
@@ -69,6 +69,10 @@ func effectiveStubCode(cfg Config) string {
 // were never issued by /v1/auth/login (replay defense; ADR-0007 §Risks).
 // If persistence fails, login returns 500 rather than issuing an
 // untrackable token.
+//
+// Sprint 1-3 (ADR-0014): the user's id is a real ULID string (CHAR(26)).
+// Unknown phones are auto-registered with a fresh ulid.Make(); re-login
+// for the same phone finds the existing row.
 func LoginHandler(cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req LoginRequest
@@ -121,39 +125,35 @@ func LoginHandler(cfg Config) gin.HandlerFunc {
 }
 
 // resolveUserID looks the phone up in the users table, auto-registering
-// unknown phones. Returns the user's int64 id.
-func resolveUserID(ctx context.Context, users UserStore, phone string) (int64, error) {
+// unknown phones with a fresh ULID. Returns the user's ULID string.
+//
+// Sprint 1-3 (ADR-0014): the inserted id is a real ulid.ULID (canonical
+// 26-char lowercase form) generated from crypto/rand entropy. Re-login
+// for the same phone finds the existing row and returns the same id;
+// uniqueness is guaranteed by the phone UNIQUE index, not by ULID.
+func resolveUserID(ctx context.Context, users UserStore, phone string) (string, error) {
 	if users == nil {
-		return deriveStubUserID(phone), nil
+		return newULID(), nil
 	}
 	user, err := users.GetUserByPhone(ctx, phone)
 	if err == nil {
 		return user.ID, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return 0, err
+		return "", err
 	}
 	inserted, err := users.InsertUser(ctx, store.InsertUserParams{
-		ID:    deriveStubUserID(phone),
+		ID:    newULID(),
 		Phone: phone,
 	})
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	return inserted.ID, nil
 }
 
-// deriveStubUserID returns a deterministic int64 from the E.164 phone.
-//
-// Sprint 1: used only as the id for auto-registered users (resolveUserID)
-// and as the nil-Users fallback. Replaced by a ULID at Sprint 1+ per ADR-0014.
-//
-// We use FNV-64 because it is fast, allocation-free, and we don't care
-// about cryptographic strength (the uid is internal; security comes from
-// the JWT signature). Determinism matters so re-login returns the same
-// uid — this is asserted by handler_test.go test #4.
-func deriveStubUserID(phone string) int64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(phone))
-	return int64(h.Sum64()) //nolint:gosec // stub only; uid wraps are acceptable
+// newULID returns a fresh canonical 26-char ULID. oklog/ulid v2 uses
+// crypto/rand entropy by default.
+func newULID() string {
+	return ulid.Make().String()
 }

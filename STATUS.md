@@ -17,6 +17,15 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's done (since last status)
 
+### Sprint 1-3: ULID 迁移(ADR-0014,2026-08-01)
+- ✅ **`db/migrations/0002_users_ulid.sql`** —— DROP + CREATE `users(id CHAR(26))` 与 `auth_tokens(user_id CHAR(26) FK)`,按 ADR 的「effectively DROP TABLE」路径。
+- ✅ **Go 层 string 贯穿** —— `store.User.ID` / `auth_tokens.user_id` / `auth.Claims.UserID` / `ws.AuthWelcome.UserID` / `OnAuthenticated` 全部改 `string`,由 oklog/ulid/v2 生成。
+- ✅ **删 `deriveStubUserID`** —— 新增 `auth.newULID()` = `ulid.Make().String()`;re-login 仍确定性(phone UNIQUE 索引 → 同 user → 同 ULID)。
+- ✅ **Wire 协议变更** —— `auth.welcome.user_id` 由 JSON 数字改字符串;`docs/api/openapi.yaml` 同步;Android `WsEvent.Welcome.userId: String`、`WsClient.optString("user_id")`、测试断言改字符串。
+- ✅ **测试** —— 新增 `isULID` 26-char Crockford 正则;`TestLoginHandlerHappyPath` 改为断言 ULID 格式;ws 端 `wantUID` 常量、store fake 改 string。
+- ✅ **ADR-0014 增补** —— 在文件末尾追加「Sprint 1-3 executed」段落,记录 schema/类型选择/wire/移除 fnv 的决策。
+- ✅ **构建** —— Go `go build` ✓ test -race ✓ lint 0 issues ✓;Android `./gradlew assembleDebug test` 通过。
+
 ### Sprint 1-2: jti replay defense(2026-07-31)
 - ✅ **`InsertToken` 在 login 时持久化 jti** —— `auth.LoginHandler` 签发 JWT 后写入 `auth_tokens(jti, user_id, expires_at)`;持久化失败 → 500(不签发无追踪 token)。
 - ✅ **`GetTokenByJTI` 在 WS first-frame 校验 jti** —— `ws.HandleConnect` JWT 验签通过后查 `auth_tokens`,`sql.ErrNoRows` → 写 `auth.error(invalid_token)` + close 1008。语义对标 ADR-0007 §Risks「tracks recently-seen jti」:只接受 login 真签发的 token,清理过期后可自然失效。
@@ -92,11 +101,11 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's next (Sprint 1 kickoff)
 
-Sprint 1-1 / 1-2 完成。剩余 backlog:
+Sprint 1-1 / 1-2 / 1-3 全部完成。剩余 backlog:
 
-- First ULID migration per ADR-0014 (regenerate users table with CHAR(26)) — Sprint 1-3
-- 真实 DB 集成验证(本机无 Postgres/Docker;跑 `docker compose up -d postgres` + `make migrate.up` 后验证 login 200 + ws auth.welcome)
-- CI workflow 验证(推送后看 GitHub Actions 跑 golangci-lint + migrate + test)
+- 真实 DB 集成验证(本机无 Postgres/Docker;跑 `docker compose up -d postgres` + `make migrate.up` 后验证 login 200 + ws auth.welcome 收到 ULID 字符串 user_id)
+- CI workflow 验证(推送后看 GitHub Actions 跑 golangci-lint + migrate 0001+0002 + test)
+- Sprint 2 路线图(参见 docs/rfc/phase-1-mvp.md 后续阶段)
 
 ## Open invitations
 
