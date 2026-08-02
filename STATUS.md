@@ -1,8 +1,11 @@
 # Status
 
-> **Phase 1 — Sprint 0 complete. Server-side + Android emulator smoke verified end-to-end.**
+> **Phase 1 — Sprint 1 in progress (minimal chat-room demo, no Agent).**
+> RFC: [`docs/rfc/phase-2-minimal-demo.md`](rfc/phase-2-minimal-demo.md)
+> Milestone: [`Sprint 1: Minimal Demo`](https://github.com/ishadowland/fireside/milestone/1) (issues #2–#12)
+> Sprint 1.5 (deferred Android): tracked separately under WP-9 (issue #11).
 
-Last updated: 2026-07-29
+Last updated: 2026-08-02
 
 ## Where we are
 
@@ -84,11 +87,19 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's next (Sprint 1 kickoff)
 
-Sprint 1 已启动(1-1 完成)。剩余 backlog:
+Sprint 1 规划已完成(2026-08-02),see [`docs/rfc/phase-2-minimal-demo.md`](rfc/phase-2-minimal-demo.md) for full WBS, decisions, and acceptance gate. Issue tracker: milestone [`Sprint 1: Minimal Demo`](https://github.com/ishadowland/fireside/milestone/1) (issues #2–#12).
 
-- Add `InsertToken` to persist jti for replay defense (ADR-0007 §Risks) — Sprint 1-2
-- First ULID migration per ADR-0014 (regenerate users table with CHAR(26)) — Sprint 1-3
-- 真实 DB 集成验证(本机无 Postgres/Docker;跑 `docker compose up -d postgres` + `make migrate.up` 后验证 login 200)
+**Sprint 1 deviations from existing ADRs / design docs (documented in RFC §2.3)**:
+- D3 (max 50) → **max 8** in Sprint 1 (Q7)
+- D6 (ephemeral, room end clears messages) → **room end not implemented** in Sprint 1 (Q3); `keep_messages_on_end` flag (Q4)
+- ADR-0014 (ULID in Sprint 1) → **deferred to Sprint 2** (Q1)
+- ADR-0007 §Risks → Replay (`InsertToken`) → **not called in LoginHandler** (Sprint 1.5 per WP-9.6)
+
+**Sprint 1.5 backlog** (post Sprint 1):
+- WP-9 Android UI (issue #11)
+- WP-9.6 Replay defense (InsertToken wiring)
+- Decide: restore D3 (50) or keep D3-modified (8)
+- Decide: implement D6 (room end + message clear)
 
 ## Open invitations
 
