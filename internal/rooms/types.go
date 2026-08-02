@@ -14,7 +14,6 @@
 package rooms
 
 import (
-	"strings"
 	"time"
 
 	"github.com/ishadowland/fireside/internal/store"
@@ -87,16 +86,10 @@ type ParticipantView struct {
 // is NOT NULL with default 'active'), so a zero value indicates a
 // programming error; we still defensively render as "" rather than
 // panicking.
-//
-// IDs are Trimmed because the schema uses CHAR(26) which pads with
-// trailing spaces on read (postgres behavior); pgx/v5/stdlib + database/sql
-// does not strip them. Sprint 2 follow-up: change CHAR(26) → VARCHAR(26)
-// for ID columns in db/migrations/0002_users_ulid.up.sql so this Trim
-// is no longer necessary.
 func viewFromStore(r store.Room) RoomView {
 	v := RoomView{
-		ID:                strings.TrimSpace(r.ID),
-		HostUserID:        strings.TrimSpace(r.HostUserID),
+		ID:                r.ID,
+		HostUserID:        r.HostUserID,
 		Name:              r.Name,
 		MaxParticipants:   r.MaxParticipants,
 		KeepMessagesOnEnd: r.KeepMessagesOnEnd,
@@ -114,16 +107,14 @@ func viewFromStore(r store.Room) RoomView {
 }
 
 // participantViewsFromStore converts []store.Participant to []ParticipantView.
-//
-// IDs are Trimmed for the same CHAR(26) reason as viewFromStore.
 func participantViewsFromStore(ps []store.Participant) []ParticipantView {
 	out := make([]ParticipantView, 0, len(ps))
 	for _, p := range ps {
 		v := ParticipantView{
-			ID:         strings.TrimSpace(p.ID),
-			RoomID:     strings.TrimSpace(p.RoomID),
-			UserID:     strings.TrimSpace(p.UserID),
-			JoinedAt:   p.JoinedAt,
+			ID:       p.ID,
+			RoomID:   p.RoomID,
+			UserID:   p.UserID,
+			JoinedAt: p.JoinedAt,
 		}
 		if p.StageState.Valid {
 			v.StageState = p.StageState.String

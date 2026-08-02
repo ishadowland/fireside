@@ -67,7 +67,7 @@ func newTestService(t *testing.T, db *sql.DB) (*Service, *store.Queries) {
 
 func TestService_CreateRoom_OK(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, q := newTestService(t, db)
 
@@ -123,7 +123,7 @@ func TestService_CreateRoom_OK(t *testing.T) {
 
 func TestService_CreateRoom_EmptyName(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
 
@@ -138,7 +138,7 @@ func TestService_CreateRoom_EmptyName(t *testing.T) {
 
 func TestService_CreateRoom_MaxParticipantsOutOfRange(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
 
@@ -153,7 +153,7 @@ func TestService_CreateRoom_MaxParticipantsOutOfRange(t *testing.T) {
 
 func TestService_GetRoom_NotFound(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
 
@@ -165,7 +165,7 @@ func TestService_GetRoom_NotFound(t *testing.T) {
 
 func TestService_EndRoom_NotHost(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
 
@@ -191,7 +191,7 @@ func TestService_EndRoom_NotHost(t *testing.T) {
 
 func TestService_EndRoom_OK(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, q := newTestService(t, db)
 
@@ -230,7 +230,7 @@ func TestService_EndRoom_OK(t *testing.T) {
 
 func TestService_ListActive(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
 

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/oklog/ulid/v2"
 
@@ -45,15 +44,11 @@ func NewService(q *store.Queries, log *slog.Logger) *Service {
 // CreateRoom inserts a new room row. hostUserID is taken from the
 // authenticated context (auth.Middleware put it there).
 //
-// hostUserID is Trimmed defensively for the CHAR(26) trailing-space
-// behavior (see types.go doc on viewFromStore).
-//
 // Sprint 1: status defaults to 'active' in DB; announcement defaults
 // to ''. No capacity check at the room level (Sprint 2 adds per-host
 // cap). Returns ErrRoomNotFound never — CreateRoom can't fail with
 // "not found".
 func (s *Service) CreateRoom(ctx context.Context, hostUserID string, req CreateRoomRequest) (RoomView, error) {
-	hostUserID = strings.TrimSpace(hostUserID)
 	if req.Name == "" {
 		return RoomView{}, fmt.Errorf("name required")
 	}
@@ -80,10 +75,7 @@ func (s *Service) CreateRoom(ctx context.Context, hostUserID string, req CreateR
 //
 // Returns ErrRoomNotFound if the id doesn't exist. Participants slice
 // is empty (not nil) when the room has no one on stage yet.
-//
-// roomID is Trimmed for the CHAR(26) trailing-space behavior.
 func (s *Service) GetRoom(ctx context.Context, roomID string) (RoomView, []ParticipantView, error) {
-	roomID = strings.TrimSpace(roomID)
 	room, err := s.q.GetRoom(ctx, roomID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RoomView{}, nil, ErrRoomNotFound
@@ -124,17 +116,12 @@ func (s *Service) ListActive(ctx context.Context, limit int32) ([]RoomView, erro
 
 // EndRoom marks the room as ended. Only the host may call this.
 //
-// actorUserID and roomID are Trimmed for the CHAR(26) trailing-space
-// behavior.
-//
 // Returns:
 //   - ErrRoomNotFound  : id has no row
 //   - ErrNotHost       : actorUserID != room.host_user_id
 //   - ErrRoomEnded     : already ended (status check)
 //   - other (DB err)   : surfaced for handler logging
 func (s *Service) EndRoom(ctx context.Context, actorUserID, roomID string) error {
-	actorUserID = strings.TrimSpace(actorUserID)
-	roomID = strings.TrimSpace(roomID)
 	room, err := s.q.GetRoom(ctx, roomID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrRoomNotFound
@@ -143,7 +130,7 @@ func (s *Service) EndRoom(ctx context.Context, actorUserID, roomID string) error
 		s.log.Error("EndRoom lookup failed", "room_id", roomID, "err", err)
 		return err
 	}
-	if strings.TrimSpace(room.HostUserID) != actorUserID {
+	if room.HostUserID != actorUserID {
 		return ErrNotHost
 	}
 	if !store.IsRoomActive(room.Status) {
