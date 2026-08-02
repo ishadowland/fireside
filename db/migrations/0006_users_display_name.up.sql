@@ -16,4 +16,4 @@
 -- by their ULID id).
 
 ALTER TABLE users
-    ADD COLUMN display_name VARCHAR(64) NOT NULL DEFAULT '';
+    ADD COLUMN IF NOT EXISTS display_name VARCHAR(64) NOT NULL DEFAULT '';
