@@ -5,6 +5,12 @@ version: "2"
 # style / complexity linters once the codebase grows.
 #
 # v2 schema reference: https://golangci-lint.run/product/migration-guide/
+#
+# Note: v2 removed `issues.exclude-rules` / `issues.exclusions` entirely.
+# To skip generated sqlc files (`internal/store/*.go`) the canonical v2
+# path is `//nolint:<linter>` directives in the generated source itself.
+# We accept that sqlc output gets linted; if any real issues surface
+# they will be addressed per-file rather than via a global exclusion.
 
 run:
   timeout: 5m
@@ -31,12 +37,3 @@ issues:
   # Don't fail CI on the first week of Sprint 0 — let sub-contractors
   # land their PRs and we'll iterate. Sprint 1 sets max-same-issues: 0.
   max-same-issues: 50
-  exclusions:
-    # Generated files by sqlc — DO NOT lint, DO NOT fix by hand.
-    - path: "internal/store/.*\\.go"
-      linters:
-        - errcheck
-        - govet
-        - ineffassign
-        - staticcheck
-        - unused
