@@ -2,10 +2,18 @@
 
 > **Status**: DCP-2 (Planning) — awaiting DCP-3 (Development) kickoff
 > **Created**: 2026-08-02
+> **Last reconciled with remote `main`**: 2026-08-02 (merge commit `dc6de96`)
 > **Owner**: liuyin (ishadowland)
 > **Sprint window**: ~2 weeks (normal estimate 21d, pessimistic 28d)
 > **Target**: 2 browsers in dashboard can create rooms, join, and exchange
 > messages in real time. Android lands in Sprint 1.5.
+
+> **⚠️ Reconciliation note**: Sprint 1-1 / 1-2 / 1-3 + CI hardening +
+> Issue #1 were implemented by a parallel agent on remote `main` between
+> 2026-07-31 and 2026-08-02, **before this RFC was written**. As a result,
+> several items in §2.3 (ULID migration, replay defense) are already
+> implemented; this RFC's remaining scope (WP-1 through WP-10) is still
+> open work for rooms + messages + hub + WS frames + dashboard.
 
 ---
 
@@ -44,16 +52,23 @@
 - ❌ Redis / cluster — Sprint 3+ (ADR-0013 deferred)
 - ❌ Real Android UI — Sprint 1.5 (deferred from Sprint 1 per Q13)
 
-### 2.3 Deviations from existing ADRs / design docs (documented)
+### 2.3 Deviations from existing ADRs / design docs
 
-| Original decision | Sprint 1 deviation | Sprint 2 restore plan |
+> **Status as of 2026-08-02 merge with remote `main`**: items marked ✅
+> have already been implemented in remote commits and **supersede** the
+> Sprint 1 deviations planned here. The RFC is kept as the *forward-looking
+> plan* for WP-1 through WP-10 (rooms / messages / hub / WS / dashboard),
+> with the deviation notes retained so the audit trail of "why" is preserved.
+
+| Original decision | Sprint 1 plan | Remote status (2026-08-02) |
 |---|---|---|
-| D3: Max 50 participants per room | **Max 8** (Q7) | Decide: 8 or 50 |
-| D6: Ephemeral messages, room end clears | **Room end not implemented** (Q3); `keep_messages_on_end` flag (Q4) | Add room end + clear path |
-| ADR-0014: Sprint 1 ULID migration | **Stay BIGINT** (Q1) | Migrate in Sprint 2 |
-| ADR-0007 §Risks → Replay: InsertToken mandatory | **Not called** in LoginHandler | Sprint 1.5 |
-| design/04 state machine: Room.active → ending → ended | **`ending` / `ended` not implemented** | Sprint 2 |
-| design/01: User has `display_name` field | **Add in this sprint** (Q6) | — |
+| D3: Max 50 participants per room | Max **8** (Q7) | ⏳ Evaluate in WP-1 schema |
+| D6: Ephemeral messages, room end clears | Room end **not implemented** (Q3); `keep_messages_on_end` flag (Q4) | ⏳ Evaluate in WP-2 room model |
+| ADR-0014: Sprint 1 ULID migration | Defer to Sprint 2 (Q1) | ✅ **Done** in Sprint 1-3 (`0739943`) |
+| ADR-0007 §Risks → Replay: `InsertToken` mandatory | Not called in Sprint 1; Sprint 1.5 (WP-9.6) | ✅ **Done** in Sprint 1-2 (`dbe0a82`) |
+| design/04 state machine: Room.active → ending → ended | `ending` / `ended` not implemented | ⏳ Evaluate in WP-2 room model |
+| design/01: User has `display_name` field | Add in this sprint (Q6) | ⏳ Implement in WP-1 migration `0005_users_display_name` |
+| Issue #1: `TestValidateTampered` fails | Fix in WP-0.1 | ✅ **Done** (`d738757`) — by tampering payload, not signature |
 
 ---
 
