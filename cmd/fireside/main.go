@@ -28,6 +28,7 @@ import (
 	"github.com/ishadowland/fireside/internal/auth"
 	"github.com/ishadowland/fireside/internal/config"
 	"github.com/ishadowland/fireside/internal/dashboard"
+	"github.com/ishadowland/fireside/internal/rooms"
 	"github.com/ishadowland/fireside/internal/store"
 	wspkg "github.com/ishadowland/fireside/internal/ws"
 )
@@ -81,6 +82,14 @@ func main() {
 	// Sprint 1-2: periodic cleanup of expired auth_tokens rows so the
 	// table doesn't grow unbounded (ADR-0007 §Risks → "Replay").
 	startTokenCleanup(queries, 5*time.Minute)
+
+	// Sprint 1 WP-2: rooms REST endpoints (POST /v1/rooms, GET, etc.).
+	// Auth: every /v1/rooms/* route is behind auth.Middleware (JWT).
+	roomsService := rooms.NewService(queries, slog.Default())
+	rooms.Mount(engine, rooms.Config{
+		Service:        roomsService,
+		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
+	})
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
