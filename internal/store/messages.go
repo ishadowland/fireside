@@ -5,13 +5,18 @@
 // underlying SQL lives in db/queries/messages.sql so the source of truth
 // stays in the migrations tree. If sqlc ever regenerates this file, the
 // methods here must match db/queries/messages.sql.)
+//
+// Sprint 1 WP-1.5: SQL string literals kept verbatim from db/queries/messages.sql
+// (matching the .sql source of truth). Go callers should pass typed
+// constants from internal/store/enums.go (SenderKindSystem, etc.) when
+// supplying sql.NullString args. `::sender_kind` / `::content_type` casts
+// added for stricter enum validation at the DB boundary.
 
 package store
 
 import (
 	"context"
 	"database/sql"
-	"time"
 )
 
 const createMessage = `-- name: CreateMessage :one
@@ -163,7 +168,3 @@ func (q *Queries) GetMessage(ctx context.Context, id string) (Message, error) {
 	)
 	return i, err
 }
-
-// Compile-time guard against time import drift if the methods above
-// become empty after a future refactor.
-var _ = time.Now

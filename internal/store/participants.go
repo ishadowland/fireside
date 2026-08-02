@@ -5,17 +5,22 @@
 // the underlying SQL lives in db/queries/participants.sql so the source
 // of truth stays in the migrations tree. If sqlc ever regenerates this
 // file, the methods here must match db/queries/participants.sql.)
+//
+// Sprint 1 WP-1.5: SQL string literals kept verbatim from
+// db/queries/participants.sql (matching the .sql source of truth). Go
+// callers should pass typed constants from internal/store/enums.go when
+// supplying sql.NullString args. `::stage_state` cast added for
+// stricter enum validation at the DB boundary.
 
 package store
 
 import (
 	"context"
-	"time"
 )
 
 const joinRoom = `-- name: JoinRoom :one
 INSERT INTO participants (id, room_id, user_id, stage_state, joined_at)
-VALUES ($1, $2, $3, 'on_stage', NOW())
+VALUES ($1, $2, $3, 'on_stage'::stage_state, NOW())
 RETURNING id, room_id, user_id, stage_state, joined_at, left_at
 `
 
@@ -34,8 +39,8 @@ func (q *Queries) JoinRoom(ctx context.Context, arg JoinRoomParams) (Participant
 
 const leaveRoom = `-- name: LeaveRoom :execresult
 UPDATE participants
-SET stage_state = 'off_stage', left_at = NOW()
-WHERE room_id = $1 AND user_id = $2 AND stage_state = 'on_stage'
+SET stage_state = 'off_stage'::stage_state, left_at = NOW()
+WHERE room_id = $1 AND user_id = $2 AND stage_state = 'on_stage'::stage_state
 `
 
 type LeaveRoomParams struct {
@@ -58,7 +63,7 @@ func (q *Queries) LeaveRoom(ctx context.Context, arg LeaveRoomParams) (int64, er
 const listOnStageByRoom = `-- name: ListOnStageByRoom :many
 SELECT id, room_id, user_id, stage_state, joined_at, left_at
 FROM participants
-WHERE room_id = $1 AND stage_state = 'on_stage'
+WHERE room_id = $1 AND stage_state = 'on_stage'::stage_state
 ORDER BY joined_at ASC
 `
 
@@ -118,7 +123,7 @@ func (q *Queries) ListByRoom(ctx context.Context, roomID string) ([]Participant,
 const listOnStageByUser = `-- name: ListOnStageByUser :many
 SELECT id, room_id, user_id, stage_state, joined_at, left_at
 FROM participants
-WHERE user_id = $1 AND stage_state = 'on_stage'
+WHERE user_id = $1 AND stage_state = 'on_stage'::stage_state
 `
 
 func (q *Queries) ListOnStageByUser(ctx context.Context, userID string) ([]Participant, error) {
@@ -147,7 +152,7 @@ func (q *Queries) ListOnStageByUser(ctx context.Context, userID string) ([]Parti
 const getOnStageParticipant = `-- name: GetOnStageParticipant :one
 SELECT id, room_id, user_id, stage_state, joined_at, left_at
 FROM participants
-WHERE room_id = $1 AND user_id = $2 AND stage_state = 'on_stage'
+WHERE room_id = $1 AND user_id = $2 AND stage_state = 'on_stage'::stage_state
 `
 
 type GetOnStageParticipantParams struct {
@@ -161,7 +166,3 @@ func (q *Queries) GetOnStageParticipant(ctx context.Context, arg GetOnStageParti
 	err := row.Scan(&i.ID, &i.RoomID, &i.UserID, &i.StageState, &i.JoinedAt, &i.LeftAt)
 	return i, err
 }
-
-// Compile-time guard against time import drift if the methods above
-// become empty after a future refactor.
-var _ = time.Now

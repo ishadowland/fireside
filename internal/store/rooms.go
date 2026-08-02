@@ -5,13 +5,17 @@
 // underlying SQL lives in db/queries/rooms.sql so the source of truth
 // stays in the migrations tree. If sqlc ever regenerates this file, the
 // methods here must match db/queries/rooms.sql.)
+//
+// Sprint 1 WP-1.5: SQL string literals kept verbatim from db/queries/rooms.sql
+// (matching the .sql source of truth). Go callers should pass the typed
+// constants from internal/store/enums.go (RoomStatusActive, etc.) when
+// supplying sql.NullString args.
 
 package store
 
 import (
 	"context"
 	"database/sql"
-	"time"
 )
 
 const createRoom = `-- name: CreateRoom :one
@@ -27,15 +31,15 @@ RETURNING id, host_user_id, name, max_participants, keep_messages_on_end,
 `
 
 type CreateRoomParams struct {
-	ID                  string
-	HostUserID          string
-	Name                string
-	MaxParticipants     int32
-	KeepMessagesOnEnd   bool
-	Status              sql.NullString
-	Announcement        sql.NullString
-	CreatedAt           sql.NullTime
-	EndedAt             sql.NullTime
+	ID                string
+	HostUserID        string
+	Name              string
+	MaxParticipants   int32
+	KeepMessagesOnEnd bool
+	Status            sql.NullString
+	Announcement      sql.NullString
+	CreatedAt         sql.NullTime
+	EndedAt           sql.NullTime
 }
 
 func (q *Queries) CreateRoom(ctx context.Context, arg CreateRoomParams) (Room, error) {
@@ -72,7 +76,7 @@ const listActiveRooms = `-- name: ListActiveRooms :many
 SELECT id, host_user_id, name, max_participants, keep_messages_on_end,
        status, announcement, created_at, ended_at
 FROM rooms
-WHERE status = 'active'
+WHERE status = 'active'::room_status
 ORDER BY created_at DESC
 LIMIT $1
 `
@@ -107,7 +111,7 @@ const listActiveRoomsByHost = `-- name: ListActiveRoomsByHost :many
 SELECT id, host_user_id, name, max_participants, keep_messages_on_end,
        status, announcement, created_at, ended_at
 FROM rooms
-WHERE host_user_id = $1 AND status = 'active'
+WHERE host_user_id = $1 AND status = 'active'::room_status
 ORDER BY created_at DESC
 `
 
@@ -139,8 +143,8 @@ func (q *Queries) ListActiveRoomsByHost(ctx context.Context, hostUserID string) 
 
 const endRoom = `-- name: EndRoom :execresult
 UPDATE rooms
-SET status = 'ended', ended_at = NOW()
-WHERE id = $1 AND status = 'active'
+SET status = 'ended'::room_status, ended_at = NOW()
+WHERE id = $1 AND status = 'active'::room_status
 `
 
 func (q *Queries) EndRoom(ctx context.Context, id string) (int64, error) {
@@ -158,7 +162,7 @@ func (q *Queries) EndRoom(ctx context.Context, id string) (int64, error) {
 const countOnStageParticipants = `-- name: CountOnStageParticipants :one
 SELECT COUNT(*)
 FROM participants
-WHERE room_id = $1 AND stage_state = 'on_stage'
+WHERE room_id = $1 AND stage_state = 'on_stage'::stage_state
 `
 
 // CountOnStageParticipants returns the number of on_stage participants in
@@ -170,7 +174,3 @@ func (q *Queries) CountOnStageParticipants(ctx context.Context, roomID string) (
 	err := row.Scan(&n)
 	return n, err
 }
-
-// Compile-time guard: avoid "imported and not used" if sqlc generation
-// later drops these methods (currently unused in WP-1).
-var _ = time.Now
