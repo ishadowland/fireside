@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
   title: Fireside API
-  version: 0.2.0
+  version: 0.3.0
   description: 'Fireside — async-first roundtable platform. Sprint 1 surface: health, stub-code login, JWT-protected rooms
-    CRUD-lite, and the local-only test dashboard.'
+    CRUD-lite, room messages (create + list with cursor pagination), and the local-only test dashboard.'
 servers:
 - url: http://localhost:18080
   description: local dev (default port, ADR-0004)
@@ -273,6 +273,69 @@ paths:
           description: Room not found
         '409':
           description: Room already ended
+  /v1/rooms/{id}/messages:
+    post:
+      summary: Post a message to a room (caller must be on_stage)
+      operationId: createMessage
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMessageRequest'
+      responses:
+        '200':
+          description: Message created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateMessageResponse'
+        '400':
+          description: Invalid request body
+        '401':
+          description: Missing or invalid JWT
+        '403':
+          description: Caller is not on_stage in this room
+        '404':
+          description: Room not found or ended
+    get:
+      summary: List messages in a room (cursor pagination via ?since)
+      operationId: listMessages
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: since
+        schema:
+          type: string
+        required: false
+        description: Message id cursor; returns messages with id < since. Omit for the first page.
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+        required: false
+        description: Default 50, max 200.
+      responses:
+        '200':
+          description: Messages (newest first)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMessagesResponse'
+        '401':
+          description: Missing or invalid JWT
 components:
   schemas:
     Error:
@@ -464,6 +527,87 @@ components:
       required:
       - room_id
       - status
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          description: ULID
+        room_id:
+          type: string
+        sender_kind:
+          type: string
+          enum:
+          - human
+          - agent
+          - system
+        sender_id:
+          type: string
+          nullable: true
+          description: NULL for system messages
+        content_type:
+          type: string
+          enum:
+          - text
+          - system
+          - image
+          - question
+          - answer
+          - progress
+        content:
+          type: string
+          maxLength: 8192
+        mentions:
+          type: array
+          items:
+            type: string
+          description: 'Mentioned participant IDs (ULID). Sprint 1: always empty [].'
+        reply_to_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - room_id
+      - sender_kind
+      - sender_id
+      - content_type
+      - content
+      - mentions
+      - created_at
+    CreateMessageRequest:
+      type: object
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 8192
+        reply_to_id:
+          type: string
+      required:
+      - content
+    CreateMessageResponse:
+      type: object
+      properties:
+        message:
+          $ref: '#/components/schemas/Message'
+      required:
+      - message
+    ListMessagesResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        next_before:
+          type: string
+          description: Cursor for next page; empty string means no more pages.
+      required:
+      - messages
+      - next_before
   securitySchemes:
     bearerAuth:
       type: http
