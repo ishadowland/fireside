@@ -3,16 +3,17 @@
 -- (auth_tokens for jti replay defense) and the users table stub for
 -- Sprint 1's real SMS provider lookup.
 --
--- INT64 column type for users.id is INTENTIONA per ADR-0014:
+-- INT64 column type for users.id is INTENTIONAL per ADR-0014:
 --   Sprint 0 keeps int64 (matches the SUB-001/SUB-003/ANDROID handoff
 --   specs). Sprint 1 migrates this column to CHAR(26) ULID when the
---   real users lookup lands. Do NOT change this column type without
---   first reading ADR-0014 and updating the Sprint 1 migration plan.
+-- real users lookup lands. Do NOT change this column type without
+-- first reading ADR-0014 and updating the Sprint 1 migration plan.
 --
 -- Sprint 0 does NOT touch this table — auth.LoginHandler uses
 -- deriveStubUserID (fnv64 of phone) and never inserts. Sprint 1+
 -- inserts real users.
 
+-- +migrate Up
 CREATE TABLE users (
     id         BIGINT       PRIMARY KEY,
     phone      VARCHAR(32)  NOT NULL,
@@ -39,3 +40,8 @@ CREATE TABLE auth_tokens (
 
 CREATE INDEX idx_auth_tokens_expires_at ON auth_tokens(expires_at);
 CREATE INDEX idx_auth_tokens_user_id ON auth_tokens(user_id);
+
+-- +migrate Down
+-- Round-trip: drop in reverse-FK order.
+DROP TABLE IF EXISTS auth_tokens;
+DROP TABLE IF EXISTS users;
