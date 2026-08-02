@@ -26,9 +26,9 @@ linters:
     - unused         # unused vars / funcs / types
   settings:
     errcheck:
-      # Allow unchecked errors in test files for now; tighten in Sprint 1+
-      # once SUB-001 / SUB-003 establish test conventions.
-      check-blank: true
+      # Allow _ = pattern for now (defer conn.Close() etc.). Tighten in
+      # Sprint 1+ once SUB-001 / SUB-003 establish test conventions.
+      check-blank: false
       exclude-functions:
         - fmt.Fprintf
         - fmt.Printf
