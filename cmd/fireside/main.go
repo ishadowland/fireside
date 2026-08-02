@@ -29,6 +29,7 @@ import (
 	"github.com/ishadowland/fireside/internal/config"
 	"github.com/ishadowland/fireside/internal/dashboard"
 	"github.com/ishadowland/fireside/internal/messages"
+	"github.com/ishadowland/fireside/internal/participants"
 	"github.com/ishadowland/fireside/internal/rooms"
 	"github.com/ishadowland/fireside/internal/store"
 	wspkg "github.com/ishadowland/fireside/internal/ws"
@@ -97,6 +98,16 @@ func main() {
 	messagesService := messages.NewService(queries, roomsService, slog.Default())
 	messages.MountRoomMessages(engine, messages.Config{
 		Service:        messagesService,
+		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
+	})
+
+	// Sprint 1 WP-4: participants REST endpoints
+	// (POST /v1/rooms/:id/join, /leave). Same auth middleware.
+	participantsService := participants.NewService(
+		queries, roomsService, messagesService, slog.Default(),
+	)
+	participants.MountRoomParticipants(engine, participants.Config{
+		Service:        participantsService,
 		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
 	})
 

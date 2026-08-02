@@ -1,9 +1,10 @@
 openapi: 3.0.3
 info:
   title: Fireside API
-  version: 0.3.0
+  version: 0.4.0
   description: 'Fireside — async-first roundtable platform. Sprint 1 surface: health, stub-code login, JWT-protected rooms
-    CRUD-lite, room messages (create + list with cursor pagination), and the local-only test dashboard.'
+    CRUD-lite, room messages (create + list with cursor pagination), participants (join + leave with system event log), and
+    the local-only test dashboard.'
 servers:
 - url: http://localhost:18080
   description: local dev (default port, ADR-0004)
@@ -338,6 +339,50 @@ paths:
           description: Missing or invalid JWT
         '404':
           description: Room not found
+  /v1/rooms/{id}/join:
+    post:
+      summary: Join a room (becomes on_stage)
+      operationId: joinRoom
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Joined (now on_stage)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRoomResponse'
+        '401':
+          description: Missing or invalid JWT
+        '404':
+          description: Room not found or ended
+        '409':
+          description: Room full or already on_stage
+  /v1/rooms/{id}/leave:
+    post:
+      summary: Leave a room (transitions to off_stage)
+      operationId: leaveRoom
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Left (now off_stage)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRoomResponse'
+        '401':
+          description: Missing or invalid JWT
+        '409':
+          description: Not on_stage in this room
 components:
   schemas:
     Error:
@@ -610,6 +655,20 @@ components:
       required:
       - messages
       - next_before
+    JoinRoomResponse:
+      type: object
+      properties:
+        participant:
+          $ref: '#/components/schemas/Participant'
+      required:
+      - participant
+    LeaveRoomResponse:
+      type: object
+      properties:
+        participant:
+          $ref: '#/components/schemas/Participant'
+      required:
+      - participant
   securitySchemes:
     bearerAuth:
       type: http
