@@ -13,7 +13,8 @@ var testSecret = []byte("test-secret-not-for-production-use-only")
 
 func TestIssueValidateRoundtrip(t *testing.T) {
 	t.Parallel()
-	tok, jti, err := Issue(testSecret, 42, 5*time.Minute)
+	const wantUID = "01HXYZABCDEFGHJKMNPQRSTVWXZ" // 26-char sample ULID
+	tok, jti, err := Issue(testSecret, wantUID, 5*time.Minute)
 	if err != nil {
 		t.Fatalf("Issue failed: %v", err)
 	}
@@ -34,8 +35,8 @@ func TestIssueValidateRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Validate failed: %v", err)
 	}
-	if claims.UserID != 42 {
-		t.Errorf("UserID: got %d, want 42", claims.UserID)
+	if claims.UserID != wantUID {
+		t.Errorf("UserID: got %q, want %q", claims.UserID, wantUID)
 	}
 	if claims.JTI != jti {
 		t.Errorf("JTI: got %q, want %q", claims.JTI, jti)
@@ -44,7 +45,7 @@ func TestIssueValidateRoundtrip(t *testing.T) {
 
 func TestValidateExpired(t *testing.T) {
 	t.Parallel()
-	tok, _, err := Issue(testSecret, 1, 1*time.Millisecond)
+	tok, _, err := Issue(testSecret, "01HXYZSAMPLEEXP00000000001A", 1*time.Millisecond)
 	if err != nil {
 		t.Fatalf("Issue failed: %v", err)
 	}
@@ -58,19 +59,28 @@ func TestValidateExpired(t *testing.T) {
 
 func TestValidateTampered(t *testing.T) {
 	t.Parallel()
-	tok, _, err := Issue(testSecret, 99, 5*time.Minute)
+	tok, _, err := Issue(testSecret, "01HXYZTAMPERED01234567890ABC", 5*time.Minute)
 	if err != nil {
 		t.Fatalf("Issue failed: %v", err)
 	}
 
-	// Flip the last character of the signature segment.
+	// Flip the last character of the payload segment. Every payload
+	// bit is fully decoded (no base64 padding), and the signature will
+	// no longer match the modified JSON — so Validate must reject it.
+	//
+	// (The original test flipped the LAST SIGNATURE byte via 0x01, but
+	// HMAC-SHA256 is 32 bytes → 256 bits, and the 43rd base64url char
+	// carries only 4 effective bits + 2 padding bits that every
+	// conformant decoder silently drops. So the tamper sometimes landed
+	// in the padding and Validate (correctly) accepted the token — a
+	// flaky test for an unrelated reason. See issue #1.)
 	parts := strings.Split(tok, ".")
 	if len(parts) != 3 {
 		t.Fatalf("expected 3 parts, got %d", len(parts))
 	}
-	sig := []byte(parts[2])
-	sig[len(sig)-1] ^= 0x01
-	parts[2] = string(sig)
+	payload := []byte(parts[1])
+	payload[len(payload)-1] ^= 0x01
+	parts[1] = string(payload)
 	tampered := strings.Join(parts, ".")
 
 	_, err = Validate(testSecret, tampered)

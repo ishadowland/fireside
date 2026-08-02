@@ -9,7 +9,8 @@
 //   -> 401 {"error":"invalid_credentials"} (wrong code)
 //   -> 400 {"error":"invalid_request"} (malformed body)
 //
-// JWT payload (per ADR-0014): {"uid":<int64>,"jti":"<uuid>", exp:<unix>}.
+// JWT payload (ADR-0014): {"uid":"<ulid>","jti":"<uuid>", exp:<unix>}.
+// UID is a 26-char ULID string (CHAR(26) in the users table).
 package auth
 
 import (
@@ -25,10 +26,9 @@ var (
 	ErrTokenInvalid = errors.New("auth: token invalid")
 )
 
-// Claims is the JWT body. UserID is int64 in Sprint 0 — see ADR-0014 for the
-// Sprint 1 migration to ULID.
+// Claims is the JWT body. UserID is a 26-char ULID string (ADR-0014).
 type Claims struct {
-	UserID int64 `json:"uid"`
+	UserID string `json:"uid"`
 	JTI    string `json:"jti"`
 	jwt.RegisteredClaims
 }
@@ -36,7 +36,7 @@ type Claims struct {
 // Issue signs a HS256 token. Returns the encoded token, its jti (so the
 // caller can persist it for replay defense — see ADR-0007 §Risks), and any
 // signing error. ttl is the access-token lifetime (15 min per RFC).
-func Issue(secret []byte, userID int64, ttl time.Duration) (string, string, error) {
+func Issue(secret []byte, userID string, ttl time.Duration) (string, string, error) {
 	now := time.Now()
 	claims := Claims{
 		UserID: userID,

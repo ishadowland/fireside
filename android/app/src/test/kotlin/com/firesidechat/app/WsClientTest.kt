@@ -19,7 +19,7 @@ class WsClientTest {
     fun `welcome frame parses to Welcome event`() {
         val frame = JSONObject()
             .put("type", "auth.welcome")
-            .put("user_id", 42L)
+            .put("user_id", "01HXYZTESTSAMPLE12345678ABCD")
             .put("jti", "test-jti-1234")
             .put("server_time", 1722000000L)
             .toString()
@@ -32,7 +32,7 @@ class WsClientTest {
 
         assertTrue("expected Welcome, got $event", event is WsEvent.Welcome)
         val welcome = event as WsEvent.Welcome
-        assertEquals(42L, welcome.userId)
+        assertEquals("01HXYZTESTSAMPLE12345678ABCD", welcome.userId)
         assertEquals("test-jti-1234", welcome.jti)
     }
 

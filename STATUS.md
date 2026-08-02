@@ -20,6 +20,30 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's done (since last status)
 
+### CI 工作流修复(2026-08-01)
+- ✅ **CI 全绿** —— 首次通过所有检查(sqlc verify / migrations up / migrations down / go mod tidy / go build / go test / golangci-lint),GitHub Actions run 30741820638。
+- ✅ **Migrations 命名规范** —— `0001_init.sql` → `0001_init.up.sql` + `0001_init.down.sql`(golang-migrate v4 iofs regex `^([0-9]+)_(.*)\.(up|down)\.(.*)$`)。原来的 plain `0001_init.sql` v4 完全不识别 → `first .: file does not exist`。
+- ✅ **golangci-lint v2 升级** —— `golangci/golangci-lint-action@v6` 拒绝 v2 linter(`v2 is not supported by v6, you must update to v7`),且 v6 `latest` 解析到 v1.64.8。升 v7 + pin `version: v2.0.0`。
+- ✅ **.golangci.yml v2 schema** —— `linters.disable-all`→`linters.default: none`;`linters-settings`→`linters.settings`;`issues.exclude-rules` 在 v2 schema 完全移除(改用 `//nolint` 内联或加 directive);`check-blank: true` → `false` 允许 `defer _ = x.Close()` 模式。
+- 引用:`GitHub Actions run 30741820638` —— 之前所有 CI run 自 2026-07-27 起均失败。
+
+### Sprint 1-3: ULID 迁移(ADR-0014,2026-08-01)
+- ✅ **`db/migrations/0002_users_ulid.sql`** —— DROP + CREATE `users(id CHAR(26))` 与 `auth_tokens(user_id CHAR(26) FK)`,按 ADR 的「effectively DROP TABLE」路径。
+- ✅ **Go 层 string 贯穿** —— `store.User.ID` / `auth_tokens.user_id` / `auth.Claims.UserID` / `ws.AuthWelcome.UserID` / `OnAuthenticated` 全部改 `string`,由 oklog/ulid/v2 生成。
+- ✅ **删 `deriveStubUserID`** —— 新增 `auth.newULID()` = `ulid.Make().String()`;re-login 仍确定性(phone UNIQUE 索引 → 同 user → 同 ULID)。
+- ✅ **Wire 协议变更** —— `auth.welcome.user_id` 由 JSON 数字改字符串;`docs/api/openapi.yaml` 同步;Android `WsEvent.Welcome.userId: String`、`WsClient.optString("user_id")`、测试断言改字符串。
+- ✅ **测试** —— 新增 `isULID` 26-char Crockford 正则;`TestLoginHandlerHappyPath` 改为断言 ULID 格式;ws 端 `wantUID` 常量、store fake 改 string。
+- ✅ **ADR-0014 增补** —— 在文件末尾追加「Sprint 1-3 executed」段落,记录 schema/类型选择/wire/移除 fnv 的决策。
+- ✅ **构建** —— Go `go build` ✓ test -race ✓ lint 0 issues ✓;Android `./gradlew assembleDebug test` 通过。
+
+### Sprint 1-2: jti replay defense(2026-07-31)
+- ✅ **`InsertToken` 在 login 时持久化 jti** —— `auth.LoginHandler` 签发 JWT 后写入 `auth_tokens(jti, user_id, expires_at)`;持久化失败 → 500(不签发无追踪 token)。
+- ✅ **`GetTokenByJTI` 在 WS first-frame 校验 jti** —— `ws.HandleConnect` JWT 验签通过后查 `auth_tokens`,`sql.ErrNoRows` → 写 `auth.error(invalid_token)` + close 1008。语义对标 ADR-0007 §Risks「tracks recently-seen jti」:只接受 login 真签发的 token,清理过期后可自然失效。
+- ✅ **`DeleteExpiredTokens` 后台清理** —— `cmd/fireside` 启动 goroutine,每 5 分钟扫一次过期 jti 行,日志报告删除条数。
+- ✅ **接口** —— 新增 `auth.TokenStore`(`InsertToken`)和 `ws.TokenLookup`(`GetTokenByJTI`);两者都由 `*store.Queries` 直接满足,`main.go` 同一 store 实例传给两端。
+- ✅ **测试** —— `fakeStore` 扩展 token 字段;`TestLoginHandlerPersistsJTI` 验证登录入库、`TestLoginHandlerNilTokensKeepsLegacyBehavior` 验证 nil Tokens 兼容旧路径;`ws` 侧 `TestHandleConnectReplayDefenseRejected`(未知 jti 拒绝)+ `TestHandleConnectReplayDefenseAccepted`(已持久化 jti 通过)。
+- ✅ **单库 SQL** —— `db/queries/auth.sql` 加 `GetTokenByJTI`;`internal/store/{auth.sql,querier}.go` 手动同步生成代码(sqlc v2 CLI 当前不可用,保持本仓原 sqlc-equivalent 风格)。
+
 ### Sprint 1-1: 真实用户查找(2026-07-31)
 - ✅ **`auth.UserStore` 接口 + LoginHandler 接入 store** — 登录改为 `GetUserByPhone` 查 `users` 表;未知手机号自动注册(`InsertUser`,stub 合约不变,直到真实短信接入)。
 - ✅ **`main.go` wire `internal/store`** — `sql.Open("pgx", POSTGRES_DSN)` + `store.New(db)` DI 进 `auth.Config.Users`;DB 不可达时服务照常启动(healthz/dashboard 可用),login 返回 500 直至 PG 就绪。
@@ -85,21 +109,37 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 - ~~**CI lint enforcement**~~ — ✅ done: `golangci-lint-action@v6` uncommented in `.github/workflows/ci.yml`; `go mod tidy` now verified via `git diff --exit-code`; migrate steps invoke the binary directly (CI has no `.env`). Push still blocked by GitHub OAuth scope — owner must push via PAT (workflow scope) or via GitHub web UI.
 
-## What's next (Sprint 1 kickoff)
+## What's next (Sprint 1 plan + Sprint 2 kickoff)
 
 Sprint 1 规划已完成(2026-08-02),see [`docs/rfc/phase-2-minimal-demo.md`](rfc/phase-2-minimal-demo.md) for full WBS, decisions, and acceptance gate. Issue tracker: milestone [`Sprint 1: Minimal Demo`](https://github.com/ishadowland/fireside/milestone/1) (issues #2–#12).
 
-**Sprint 1 deviations from existing ADRs / design docs (documented in RFC §2.3)**:
-- D3 (max 50) → **max 8** in Sprint 1 (Q7)
-- D6 (ephemeral, room end clears messages) → **room end not implemented** in Sprint 1 (Q3); `keep_messages_on_end` flag (Q4)
-- ADR-0014 (ULID in Sprint 1) → **deferred to Sprint 2** (Q1)
-- ADR-0007 §Risks → Replay (`InsertToken`) → **not called in LoginHandler** (Sprint 1.5 per WP-9.6)
+**Sprint 1 已完成项目**(per remote `main`):
+- ✅ Sprint 1-1: real user lookup + openapi.yaml (commit `6f5db01`)
+- ✅ Sprint 1-2: jti replay defense via `InsertToken` (commit `dbe0a82`) — **supersedes** RFC deviation note
+- ✅ Sprint 1-3: ULID migration per ADR-0014 (commit `0739943`) — **supersedes** RFC deviation note
+- ✅ Issue #1: `TestValidateTampered` fixed by tampering payload not signature (commit `d738757`)
+- ✅ CI 全绿 (commit `2c41877`): golangci-lint v2 schema + golangci-lint-action v7 + migrate v4 iofs naming + TestValidateMissingExp
 
-**Sprint 1.5 backlog** (post Sprint 1):
-- WP-9 Android UI (issue #11)
-- WP-9.6 Replay defense (InsertToken wiring)
-- Decide: restore D3 (50) or keep D3-modified (8)
+**Sprint 1 deviations from existing ADRs / design docs (RFC §2.3)** — most are now **obsolete** due to remote commits above. RFC needs reconciliation:
+- ~~D3 max 50 → max 8 in Sprint 1~~ — **still valid**, evaluate in Sprint 2
+- ~~D6 ephemeral (room end clears messages) → not implemented~~ — **still valid**, evaluate in Sprint 2
+- ~~ADR-0014 ULID → deferred to Sprint 2~~ — **DONE** in Sprint 1-3
+- ~~ADR-0007 §Risks Replay → not called~~ — **DONE** in Sprint 1-2
+
+**Remaining Sprint 1 work**(per RFC §4, not yet implemented in remote `main`):
+- WP-1 rooms / participants / messages migrations
+- WP-2/3/4 internal/rooms / internal/messages / internal/packages
+- WP-5 hub (CORE — critical path)
+- WP-6 WS business frames (msg.* / room.*)
+- WP-7 REST endpoints (rooms CRUD-lite + auth/refresh + display_name)
+- WP-8 Dashboard UI (room list + chat)
+
+**Sprint 1.5 / Sprint 2 backlog** (post Sprint 1):
+- WP-9 Android UI (issue #11) — Sprint 1.5
+- Decide: restore D3 (max 50) or keep D3-modified (max 8)
 - Decide: implement D6 (room end + message clear)
+- Real DB integration smoke test (owner action — needs Postgres locally)
+- Sprint 2 路线图:房间/消息/agent 框架(参见 docs/rfc/phase-1-mvp.md 后续阶段 + ADR-0015..0018 待实现)
 
 ## Open invitations
 

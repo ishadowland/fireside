@@ -1,9 +1,9 @@
--- 0001_init.sql
+-- 0001_init.up.sql
 -- Sprint 0 baseline schema. Only the two tables required by ADR-0007
 -- (auth_tokens for jti replay defense) and the users table stub for
 -- Sprint 1's real SMS provider lookup.
 --
--- INT64 column type for users.id is INTENTIONA per ADR-0014:
+-- INT64 column type for users.id is INTENTIONAL per ADR-0014:
 --   Sprint 0 keeps int64 (matches the SUB-001/SUB-003/ANDROID handoff
 --   specs). Sprint 1 migrates this column to CHAR(26) ULID when the
 --   real users lookup lands. Do NOT change this column type without
@@ -38,4 +38,4 @@ CREATE TABLE auth_tokens (
 );
 
 CREATE INDEX idx_auth_tokens_expires_at ON auth_tokens(expires_at);
-CREATE INDEX idx_auth_tokens_user_id ON auth_tokens(user_id);
+CREATE INDEX idx_auth_tokens_user_id    ON auth_tokens(user_id);

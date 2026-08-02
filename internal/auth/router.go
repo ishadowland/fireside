@@ -13,6 +13,7 @@ type Config struct {
 	AccessTokenTTL time.Duration // required; RFC says 15 min
 	StubCode       string        // optional; SMS code accepted in Sprint 0, defaults to "1234"
 	Users          UserStore     // required; user lookup/auto-register for login
+	Tokens         TokenStore    // required; persists jti for replay defense (Sprint 1-2)
 }
 
 // Mount registers POST /v1/auth/login onto r.

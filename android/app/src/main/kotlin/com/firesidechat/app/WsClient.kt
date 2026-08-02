@@ -98,7 +98,7 @@ class WsClient(
             val obj = JSONObject(text)
             when (val type = obj.optString("type")) {
                 "auth.welcome" -> WsEvent.Welcome(
-                    userId = obj.optLong("user_id"),
+                    userId = obj.optString("user_id"),
                     jti = obj.optString("jti"),
                 )
                 "auth.error" -> WsEvent.Error(

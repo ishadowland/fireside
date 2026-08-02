@@ -50,11 +50,14 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	queries := newUserStore(cfg.PostgresDSN)
+
 	auth.Mount(engine, auth.Config{
 		JWTSecret:      cfg.JWTSecret,
 		AccessTokenTTL: cfg.JWTAccessTTL,
 		StubCode:       cfg.SMSStubCode,
-		Users:          newUserStore(cfg.PostgresDSN),
+		Users:          queries,
+		Tokens:         queries,
 	})
 
 	dashboard.Mount(engine, dashboard.Config{
@@ -69,10 +72,15 @@ func main() {
 			// allow-list via CORS_ALLOWED_ORIGINS env (deferred).
 			return true
 		},
-		OnAuthenticated: func(uid int64, jti string, _ *websocket.Conn) {
+		OnAuthenticated: func(uid string, jti string, _ *websocket.Conn) {
 			slog.Info("ws authenticated", "user_id", uid, "jti", jti)
 		},
+		Tokens: queries, // Sprint 1-2: jti replay defense
 	})
+
+	// Sprint 1-2: periodic cleanup of expired auth_tokens rows so the
+	// table doesn't grow unbounded (ADR-0007 §Risks → "Replay").
+	startTokenCleanup(queries, 5*time.Minute)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -144,4 +152,28 @@ func newUserStore(dsn string) *store.Queries {
 		slog.Info("postgres connected")
 	}
 	return store.New(db)
+}
+
+// startTokenCleanup launches a goroutine that periodically deletes
+// expired rows from auth_tokens. Stops when ctx is cancelled.
+//
+// Errors are logged but do not abort the loop — a transient DB hiccup
+// shouldn't crash the cleaner.
+func startTokenCleanup(q *store.Queries, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			n, err := q.DeleteExpiredTokens(ctx)
+			cancel()
+			if err != nil {
+				slog.Warn("token cleanup failed", "err", err)
+				continue
+			}
+			if n > 0 {
+				slog.Info("token cleanup", "deleted", n)
+			}
+		}
+	}()
 }

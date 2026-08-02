@@ -30,7 +30,7 @@ RETURNING id, phone, created_at
 `
 
 type InsertUserParams struct {
-	ID    int64
+	ID    string
 	Phone string
 }
 
@@ -49,7 +49,7 @@ RETURNING jti, user_id, expires_at, created_at
 
 type InsertTokenParams struct {
 	Jti       uuid.UUID
-	UserID    int64
+	UserID    string
 	ExpiresAt sql.NullTime
 }
 
@@ -75,4 +75,17 @@ func (q *Queries) DeleteExpiredTokens(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("rows affected: %w", err)
 	}
 	return rows, nil
+}
+
+const getTokenByJTI = `-- name: GetTokenByJTI :one
+SELECT jti, user_id, expires_at, created_at
+FROM auth_tokens
+WHERE jti = $1
+`
+
+func (q *Queries) GetTokenByJTI(ctx context.Context, jti uuid.UUID) (AuthToken, error) {
+	row := q.db.QueryRowContext(ctx, getTokenByJTI, jti)
+	var i AuthToken
+	err := row.Scan(&i.Jti, &i.UserID, &i.ExpiresAt, &i.CreatedAt)
+	return i, err
 }

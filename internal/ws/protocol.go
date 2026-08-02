@@ -28,9 +28,13 @@ type AuthHello struct {
 }
 
 // AuthWelcome is sent on successful auth.hello.
+//
+// Sprint 1-3 (ADR-0014): UserID is a 26-char ULID string; JSON-marshaled
+// as a string (was int64 in Sprint 0/1-2 — wire format intentionally
+// changed per the locked design doc 03-protocol.md).
 type AuthWelcome struct {
 	Type       string `json:"type"`        // FrameTypeAuthWelcome
-	UserID     int64  `json:"user_id"`     // Sprint 0 int64 per ADR-0014
+	UserID     string `json:"user_id"`     // ULID, see ADR-0014
 	JTI        string `json:"jti"`         // the JWT's jti claim
 	ServerTime int64  `json:"server_time"` // unix seconds; helps clients detect skew
 }

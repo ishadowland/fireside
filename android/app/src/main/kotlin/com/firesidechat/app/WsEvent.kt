@@ -9,7 +9,8 @@ package com.firesidechat.app
 sealed class WsEvent {
     object Connecting : WsEvent()
     object Open : WsEvent()
-    data class Welcome(val userId: Long, val jti: String) : WsEvent()
+    // Sprint 1-3 (ADR-0014): user_id on the wire is a 26-char ULID string.
+    data class Welcome(val userId: String, val jti: String) : WsEvent()
     data class Error(val code: String, val message: String) : WsEvent()
     object Closed : WsEvent()
     data class Failure(val cause: Throwable) : WsEvent()

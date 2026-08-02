@@ -1,17 +1,22 @@
 package ws
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
 	"github.com/ishadowland/fireside/internal/auth"
+	"github.com/ishadowland/fireside/internal/store"
 )
 
 var (
@@ -48,14 +53,14 @@ func TestHandleConnectHappyPath(t *testing.T) {
 	t.Parallel()
 
 	var (
-		gotUID int64
+		gotUID string
 		gotJTI string
 		called = make(chan struct{}, 1)
 	)
 	srv := newTestServer(t, Config{
 		JWTSecret:    testSecret,
 		HelloTimeout: 5 * time.Second,
-		OnAuthenticated: func(uid int64, jti string, _ *websocket.Conn) {
+		OnAuthenticated: func(uid string, jti string, _ *websocket.Conn) {
 			gotUID = uid
 			gotJTI = jti
 			select {
@@ -65,7 +70,8 @@ func TestHandleConnectHappyPath(t *testing.T) {
 		},
 	})
 
-	tok, jti, err := auth.Issue(testSecret, 42, testTTL)
+	const wantUID = "01HXYZTESTSAMPLE12345678ABCD"
+	tok, jti, err := auth.Issue(testSecret, wantUID, testTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +88,8 @@ func TestHandleConnectHappyPath(t *testing.T) {
 	if welcome.Type != FrameTypeAuthWelcome {
 		t.Errorf("welcome.Type: got %q, want %q", welcome.Type, FrameTypeAuthWelcome)
 	}
-	if welcome.UserID != 42 {
-		t.Errorf("welcome.UserID: got %d, want 42", welcome.UserID)
+	if welcome.UserID != wantUID {
+		t.Errorf("welcome.UserID: got %q, want wantUID", welcome.UserID)
 	}
 	if welcome.JTI != jti {
 		t.Errorf("welcome.JTI: got %q, want %q", welcome.JTI, jti)
@@ -94,8 +100,8 @@ func TestHandleConnectHappyPath(t *testing.T) {
 
 	select {
 	case <-called:
-		if gotUID != 42 || gotJTI != jti {
-			t.Errorf("OnAuthenticated got uid=%d jti=%q, want uid=42 jti=%q", gotUID, gotJTI, jti)
+		if gotUID != wantUID || gotJTI != jti {
+			t.Errorf("OnAuthenticated got uid=%q jti=%q, want uid=%q jti=%q", gotUID, gotJTI, wantUID, jti)
 		}
 	case <-time.After(time.Second):
 		t.Error("OnAuthenticated was not called")
@@ -220,5 +226,111 @@ func TestMountRegisters(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code == http.StatusNotFound {
 		t.Fatal("Mount did not register /ws/v1/connect")
+	}
+}
+
+// fakeTokenLookup satisfies TokenLookup for tests.
+type fakeTokenLookup struct {
+	mu    sync.Mutex
+	known map[uuid.UUID]store.AuthToken
+}
+
+func newFakeTokenLookup() *fakeTokenLookup {
+	return &fakeTokenLookup{known: make(map[uuid.UUID]store.AuthToken)}
+}
+
+func (f *fakeTokenLookup) GetTokenByJTI(_ context.Context, jti uuid.UUID) (store.AuthToken, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	tok, ok := f.known[jti]
+	if !ok {
+		return store.AuthToken{}, sql.ErrNoRows
+	}
+	return tok, nil
+}
+
+// TestHandleConnectReplayDefenseRejected: with a TokenLookup wired, a
+// perfectly-signed token whose jti is not in the store is rejected
+// (ADR-0007 §Risks → "Replay").
+func TestHandleConnectReplayDefenseRejected(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, Config{
+		JWTSecret:    testSecret,
+		HelloTimeout: 5 * time.Second,
+		Tokens:       newFakeTokenLookup(), // empty: nothing is "issued"
+	})
+
+	tok, _, err := auth.Issue(testSecret, "01HXYZTESTSAMPLE12345678ABCD", testTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conn := dial(t, srv.URL)
+	if err := conn.WriteJSON(AuthHello{Type: FrameTypeAuthHello, Token: tok}); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+
+	var got AuthError
+	if err := conn.ReadJSON(&got); err != nil {
+		t.Fatalf("read auth.error: %v", err)
+	}
+	if got.Type != FrameTypeAuthError {
+		t.Errorf("type: got %q, want %q", got.Type, FrameTypeAuthError)
+	}
+	if got.Code != CodeInvalidToken {
+		t.Errorf("code: got %q, want %q (jti not persisted)", got.Code, CodeInvalidToken)
+	}
+}
+
+// TestHandleConnectReplayDefenseAccepted: the same token passes when
+// its jti is registered with the TokenLookup before connect (simulating
+// the /v1/auth/login -> InsertToken path).
+func TestHandleConnectReplayDefenseAccepted(t *testing.T) {
+	t.Parallel()
+
+	tok, jti, err := auth.Issue(testSecret, "01HXYZTESTSAMPLE12345678ABCD", testTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantUID = "01HXYZTESTSAMPLE12345678ABCD"
+	jtUUID, err := uuid.Parse(jti)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lookup := newFakeTokenLookup()
+	lookup.known[jtUUID] = store.AuthToken{
+		Jti:       jtUUID,
+		UserID:    wantUID,
+		ExpiresAt: sql.NullTime{Time: time.Now().Add(testTTL), Valid: true},
+	}
+
+	srv := newTestServer(t, Config{
+		JWTSecret:    testSecret,
+		HelloTimeout: 5 * time.Second,
+		Tokens:       lookup,
+	})
+
+	conn := dial(t, srv.URL)
+	if err := conn.WriteJSON(AuthHello{Type: FrameTypeAuthHello, Token: tok}); err != nil {
+		t.Fatalf("write hello: %v", err)
+	}
+
+	var welcome AuthWelcome
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	if welcome.Type != FrameTypeAuthWelcome {
+		t.Errorf("welcome.Type: got %q, want %q", welcome.Type, FrameTypeAuthWelcome)
+	}
+	if welcome.UserID != wantUID {
+		t.Errorf("welcome.UserID: got %q, want wantUID", welcome.UserID)
+	}
+	if welcome.JTI != jti {
+		t.Errorf("welcome.JTI: got %q, want %q", welcome.JTI, jti)
 	}
 }
