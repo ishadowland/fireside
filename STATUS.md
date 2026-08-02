@@ -17,6 +17,13 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's done (since last status)
 
+### CI 工作流修复(2026-08-01)
+- ✅ **CI 全绿** —— 首次通过所有检查(sqlc verify / migrations up / migrations down / go mod tidy / go build / go test / golangci-lint),GitHub Actions run 30741820638。
+- ✅ **Migrations 命名规范** —— `0001_init.sql` → `0001_init.up.sql` + `0001_init.down.sql`(golang-migrate v4 iofs regex `^([0-9]+)_(.*)\.(up|down)\.(.*)$`)。原来的 plain `0001_init.sql` v4 完全不识别 → `first .: file does not exist`。
+- ✅ **golangci-lint v2 升级** —— `golangci/golangci-lint-action@v6` 拒绝 v2 linter(`v2 is not supported by v6, you must update to v7`),且 v6 `latest` 解析到 v1.64.8。升 v7 + pin `version: v2.0.0`。
+- ✅ **.golangci.yml v2 schema** —— `linters.disable-all`→`linters.default: none`;`linters-settings`→`linters.settings`;`issues.exclude-rules` 在 v2 schema 完全移除(改用 `//nolint` 内联或加 directive);`check-blank: true` → `false` 允许 `defer _ = x.Close()` 模式。
+- 引用:`GitHub Actions run 30741820638` —— 之前所有 CI run 自 2026-07-27 起均失败。
+
 ### Sprint 1-3: ULID 迁移(ADR-0014,2026-08-01)
 - ✅ **`db/migrations/0002_users_ulid.sql`** —— DROP + CREATE `users(id CHAR(26))` 与 `auth_tokens(user_id CHAR(26) FK)`,按 ADR 的「effectively DROP TABLE」路径。
 - ✅ **Go 层 string 贯穿** —— `store.User.ID` / `auth_tokens.user_id` / `auth.Claims.UserID` / `ws.AuthWelcome.UserID` / `OnAuthenticated` 全部改 `string`,由 oklog/ulid/v2 生成。
@@ -101,11 +108,10 @@ Backend log confirmed the matching `ws authenticated` call from `OnAuthenticated
 
 ## What's next (Sprint 1 kickoff)
 
-Sprint 1-1 / 1-2 / 1-3 全部完成。剩余 backlog:
+Sprint 1-1 / 1-2 / 1-3 + CI 全绿 + Issue #1 修复全部完成。剩余 backlog:
 
-- 真实 DB 集成验证(本机无 Postgres/Docker;跑 `docker compose up -d postgres` + `make migrate.up` 后验证 login 200 + ws auth.welcome 收到 ULID 字符串 user_id)
-- CI workflow 验证(推送后看 GitHub Actions 跑 golangci-lint + migrate 0001+0002 + test)
-- Sprint 2 路线图(参见 docs/rfc/phase-1-mvp.md 后续阶段)
+- 真 DB 集成验证(本机无 Postgres;`docker compose up -d postgres` + `make migrate.up` + curl/wscat 全链路 smoke)
+- Sprint 2 路线图:房间/消息/agent 框架(参见 docs/rfc/phase-1-mvp.md 后续阶段 + ADR-0015..0018 待实现)
 
 ## Open invitations
 
