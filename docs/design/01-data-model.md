@@ -3,6 +3,22 @@
 > Entity definitions, relationships, and DB schema.
 > 状态：🚧 Draft v0.1 — 待用户审阅后冻结。
 
+## Sprint 1 implementation status (2026-08-02)
+
+| Entity | Documented here | Implemented | Migration |
+|---|---|---|---|
+| `users` | ✓ | ✅ Sprint 1-3 (ULID) | `0002_users_ulid.up.sql` |
+| `auth_tokens` | ✓ | ✅ Sprint 1-2 (replay defense) | `0001_init.up.sql` |
+| `rooms` | ✓ | ✅ Sprint 1 WP-1 | `0003_rooms.up.sql` |
+| `participants` | ✓ | ✅ Sprint 1 WP-1 | `0004_participants.up.sql` |
+| `messages` | ✓ | ✅ Sprint 1 WP-1 | `0005_messages.up.sql` |
+| `agents` | ✓ | ❌ Sprint 2+ | (not yet) |
+| `raise_hands` | ✓ | ❌ Sprint 3 | (not yet) |
+| `archives` | ✓ | ❌ Sprint 3 | (not yet) |
+| `workspaces` (+ branches/merges) | ✓ | ❌ Sprint 4 | (not yet) |
+
+Sprint 1 WP-1 status: migrations 0003-0006 + queries in `db/queries/{rooms,participants,messages,users_display_name}.sql`. See `docs/rfc/phase-2-minimal-demo.md` §4 WP-1 for details.
+
 ## 实体总览
 
 ```

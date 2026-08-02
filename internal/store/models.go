@@ -4,6 +4,7 @@ package store
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -22,4 +23,53 @@ type AuthToken struct {
 	UserID    string
 	ExpiresAt sql.NullTime
 	CreatedAt sql.NullTime
+}
+
+// Room is the rooms table row (Sprint 1 WP-1, see db/migrations/0003_rooms.up.sql).
+//
+// Status is the room_status enum ('active' | 'ended'). sqlc emits it as
+// sql.NullString when an enum override is missing; we keep it as
+// sql.NullString here for consistency with how the column is scanned.
+// Callers may check .String == "active"/"ended".
+//
+// Announcement ≤ 500 chars (CHECK constraint in DB). Default '' in DB.
+type Room struct {
+	ID                string
+	HostUserID        string
+	Name              string
+	MaxParticipants   int32
+	KeepMessagesOnEnd bool
+	Status            sql.NullString
+	Announcement      string
+	CreatedAt         time.Time
+	EndedAt           sql.NullTime
+}
+
+// Participant is the participants table row (Sprint 1 WP-1,
+// db/migrations/0004_participants.up.sql). StageState is the stage_state enum
+// ('on_stage' | 'off_stage'). LeftAt is NULL while on_stage, set when
+// transitioned to off_stage.
+type Participant struct {
+	ID         string
+	RoomID     string
+	UserID     string
+	StageState sql.NullString
+	JoinedAt   time.Time
+	LeftAt     sql.NullTime
+}
+
+// Message is the messages table row (Sprint 1 WP-1,
+// db/migrations/0005_messages.up.sql). SenderKind and ContentType are enums
+// stored as sql.NullString. SenderID is NULL for system messages per the
+// chk_sender_id_consistency CHECK. Mentions is JSONB (default '[]').
+type Message struct {
+	ID          string
+	RoomID      string
+	SenderKind  sql.NullString
+	SenderID    sql.NullString
+	ContentType sql.NullString
+	Content     string
+	Mentions    []byte
+	ReplyToID   sql.NullString
+	CreatedAt   time.Time
 }
