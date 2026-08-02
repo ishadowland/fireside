@@ -106,10 +106,11 @@ func listMessagesHandler(cfg Config) gin.HandlerFunc {
 		msgs, nextBefore, err := cfg.Service.ListMessagesByRoom(
 			c.Request.Context(), roomID, since, limit,
 		)
-		if err != nil {
-			// ListMessagesByRoom doesn't surface ErrRoomNotFound
-			// (it returns empty for any room id); any DB error is
-			// internal.
+		switch {
+		case errors.Is(err, ErrRoomNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "room_not_found"})
+			return
+		case err != nil:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}

@@ -62,7 +62,7 @@ func (s *Service) CreateMessage(ctx context.Context, actorUserID, roomID string,
 		s.log.Error("CreateMessage: room lookup failed", "room_id", roomID, "err", err)
 		return MessageView{}, err
 	}
-	if room.Status != "active" {
+	if room.Status != store.RoomStatusActive {
 		// Sprint 1: ended rooms reject new messages. Sprint 2 may
 		// allow posting to ended rooms before archival (Q3 decision).
 		return MessageView{}, ErrRoomNotFound
@@ -71,7 +71,7 @@ func (s *Service) CreateMessage(ctx context.Context, actorUserID, roomID string,
 	// 2) Actor must be on_stage.
 	onStage := false
 	for _, p := range parts {
-		if p.UserID == actorUserID && p.StageState == "on_stage" {
+		if p.UserID == actorUserID && p.StageState == store.StageStateOnStage {
 			onStage = true
 			break
 		}
@@ -87,7 +87,7 @@ func (s *Service) CreateMessage(ctx context.Context, actorUserID, roomID string,
 	// (handler binding already enforced min=1,max=8192)
 
 	// 4) Persist. mentions default '[]' (JSONB column default).
-	var mentions []byte = []byte("[]")
+	mentions := []byte("[]")
 	var replyToID sql.NullString
 	if req.ReplyToID != "" {
 		// Sprint 1: trust caller; Sprint 2 may validate reply_to_id
@@ -99,9 +99,9 @@ func (s *Service) CreateMessage(ctx context.Context, actorUserID, roomID string,
 	msg, err := s.q.CreateMessage(ctx, store.CreateMessageParams{
 		ID:          id,
 		RoomID:      roomID,
-		SenderKind:  sql.NullString{String: "human", Valid: true},
+		SenderKind:  sql.NullString{String: store.SenderKindHuman, Valid: true},
 		SenderID:    sql.NullString{String: actorUserID, Valid: true},
-		ContentType: sql.NullString{String: "text", Valid: true},
+		ContentType: sql.NullString{String: store.ContentTypeText, Valid: true},
 		Content:     req.Content,
 		Mentions:    mentions,
 		ReplyToID:   replyToID,
@@ -127,7 +127,7 @@ func (s *Service) CreateSystemMessage(ctx context.Context, roomID string, conten
 	if err != nil {
 		return err
 	}
-	if room.Status != "active" {
+	if room.Status != store.RoomStatusActive {
 		return ErrRoomNotFound
 	}
 	if content == "" {
@@ -140,9 +140,9 @@ func (s *Service) CreateSystemMessage(ctx context.Context, roomID string, conten
 	_, err = s.q.CreateMessage(ctx, store.CreateMessageParams{
 		ID:          ulid.Make().String(),
 		RoomID:      roomID,
-		SenderKind:  sql.NullString{String: "system", Valid: true},
+		SenderKind:  sql.NullString{String: store.SenderKindSystem, Valid: true},
 		SenderID:    sql.NullString{Valid: false}, // MUST be NULL for system per CHECK
-		ContentType: sql.NullString{String: "system", Valid: true},
+		ContentType: sql.NullString{String: store.SenderKindSystem, Valid: true},
 		Content:     content,
 		Mentions:    []byte("[]"),
 		ReplyToID:   sql.NullString{Valid: false},
@@ -170,6 +170,12 @@ func (s *Service) ListMessagesByRoom(ctx context.Context, roomID, sinceID string
 	}
 	if limit > MaxPageSize {
 		limit = MaxPageSize
+	}
+	// Verify the room exists before the messages query so an unknown room
+	// surfaces as ErrRoomNotFound (404) instead of an empty list
+	// (which would mask a typo or a deleted room as "no messages").
+	if _, _, err := s.rooms.GetRoom(ctx, roomID); err != nil {
+		return nil, "", err
 	}
 	var since sql.NullString
 	if sinceID != "" {

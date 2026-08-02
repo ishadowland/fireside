@@ -336,6 +336,8 @@ paths:
                 $ref: '#/components/schemas/ListMessagesResponse'
         '401':
           description: Missing or invalid JWT
+        '404':
+          description: Room not found
 components:
   schemas:
     Error:
