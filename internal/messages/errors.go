@@ -1,24 +1,31 @@
 package messages
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/ishadowland/fireside/internal/rooms"
+)
 
 // Business errors returned by Service. Mount maps each to an HTTP status.
 //
-// Cross-package errors:
-//   - rooms.ErrRoomNotFound is re-exported as messages.ErrRoomNotFound
-//     so handlers only need to import one package. The mapping is done
-//     at Mount level via errors.Is + room lookup.
+// ErrRoomNotFound is an alias for rooms.ErrRoomNotFound — both packages
+// surface the same underlying sentinel so a handler using
+// `errors.Is(err, rooms.ErrRoomNotFound)` (or `messages.ErrRoomNotFound`,
+// which is the same value) matches errors returned from either package.
+// This is preferable to wrapping because:
+//   - one canonical sentinel reduces risk of "two equal-but-different"
+//     errors.Is failures (the original WP-3 bug fixed by this comment).
+//   - messages.Service genuinely has nothing extra to add to the
+//     rooms.ErrRoomNotFound message.
 //
-// Sprint 1 keeps the set small. Sprint 2 adds ErrReplyTargetNotFound
-// (when reply_to_id points at a non-existent message) and possibly
-// ErrRateLimited if a token-bucket lands.
+// Sprint 2 may add ErrReplyTargetNotFound (when reply_to_id points at
+// a non-existent message) and possibly ErrRateLimited.
 var (
 	// ErrMessageNotFound: GetMessage on a non-existent id.
 	ErrMessageNotFound = errors.New("messages: message not found")
 
-	// ErrRoomNotFound: target room doesn't exist or is ended.
-	// Wrapped from internal/rooms.ErrRoomNotFound; see service.go.
-	ErrRoomNotFound = errors.New("messages: room not found")
+	// ErrRoomNotFound: alias to rooms.ErrRoomNotFound. See package doc.
+	ErrRoomNotFound = rooms.ErrRoomNotFound
 
 	// ErrNotOnStage: caller (sender_kind='human') is not currently
 	// on_stage in the target room. Sprint 1 returns this even though
