@@ -4,6 +4,13 @@
 -- A real downgrade in production would also need to convert existing
 -- CHAR(26) ULID ids back to BIGINT, which is not lossless — that's
 -- why this migration is documented as effectively one-way.
+--
+-- auth_tokens REFERENCES users, so drop in reverse-FK order before
+-- recreating the BIGINT schema. (The up migration drops first too;
+-- this is symmetric.)
+
+DROP TABLE IF EXISTS auth_tokens;
+DROP TABLE IF EXISTS users;
 
 CREATE TABLE users (
     id         BIGINT       PRIMARY KEY,
