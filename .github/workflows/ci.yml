@@ -59,6 +59,26 @@ jobs:
       - name: Migrations down (round-trip)
         run: migrate -path db/migrations -database "$POSTGRES_DSN" down 1
 
+      - name: Integration test DB setup
+        # Sprint 1 integration tests (internal/rooms, internal/messages,
+        # internal/participants) require a real Postgres test DB. Without
+        # this, the per-test FIRESIDE_TEST_DSN guard skips them and the CI
+        # gate is silent on issues like WP-2 CHAR(26) trailing-space,
+        # WP-3 errors.Is mismatch, WP-4 SQLSTATE 42P08.
+        #
+        # Steps:
+        # 1. Create a fresh `fireside_test` database (separate from the
+        #    main `fireside` DB so concurrent truncate doesn't blow up
+        #    the dev DB).
+        # 2. Run all migrations on it.
+        env:
+          POSTGRES_DSN_TEST: postgres://fireside:devpassword@localhost:5432/fireside_test?sslmode=disable
+        run: |
+          psql "postgres://fireside:devpassword@localhost:5432/postgres?sslmode=disable" \
+            -c "DROP DATABASE IF EXISTS fireside_test;" \
+            -c "CREATE DATABASE fireside_test;"
+          migrate -path db/migrations -database "$POSTGRES_DSN_TEST" up
+
       - name: go mod tidy check
         run: |
           go mod tidy
@@ -67,8 +87,14 @@ jobs:
       - name: go build
         run: go build ./...
 
-      - name: go test
-        run: go test -race ./...
+      - name: go test (unit + integration, with -p 1 to serialize)
+        # -p 1 forces serial test execution because the rooms /
+        # messages / participants integration tests share the same
+        # `fireside_test` DB and TRUNCATE concurrently. -count=1
+        # disables test caching. -race runs the data race detector.
+        env:
+          FIRESIDE_TEST_DSN: postgres://fireside:devpassword@localhost:5432/fireside_test?sslmode=disable
+        run: go test -race -count=1 -p 1 ./...
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
