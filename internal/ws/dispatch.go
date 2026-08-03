@@ -269,16 +269,14 @@ func handleRoomUnsubscribe(
 // handleMsgSend persists a message and broadcasts it.
 //
 // Preconditions:
-//   - conn must be subscribed to f.RoomID (so we know they're in
-//     the room). We use hub.IsSubscribed as the gate; this is a
-//     stronger check than the REST `must be on_stage` because it
-//     proves the conn explicitly subscribed.
+//   - conn must be subscribed to f.RoomID (hub.IsSubscribed is the
+//     gate here — it proves the conn explicitly subscribed).
+//   - the actor must be on_stage in the room. messages.CreateMessage
+//     enforces this internally (see its on-stage loop); we rely on
+//     that check and only add the hub-subscription gate here.
 //
-// Sprint 1 simplification: we do NOT separately check on_stage in
-// the participants table. The hub subscription is the source of
-// truth. This means a user who joins via REST and subscribes via
-// WS is "on_stage" for msg.send purposes — which is exactly what
-// we want.
+// Sprint 1 simplification: a user who joins via REST (on_stage) and
+// subscribes via WS can send — which is exactly what we want.
 func handleMsgSend(
 	ctx context.Context,
 	conn *websocket.Conn,

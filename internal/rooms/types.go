@@ -32,8 +32,6 @@ type CreateRoomResponse struct {
 }
 
 // ListActiveResponse is the 200 body of GET /v1/rooms.
-// Each room carries a `me_on_stage` flag computed from the caller's
-// current on_stage rows.
 type ListActiveResponse struct {
 	Rooms []RoomView `json:"rooms"`
 }

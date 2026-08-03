@@ -149,12 +149,24 @@ func HandleConnect(cfg Config) gin.HandlerFunc {
 				writeAuthErrorAndClose(conn, CodeInvalidToken)
 				return
 			}
-			if _, err := cfg.Tokens.GetTokenByJTI(c.Request.Context(), jtUUID); err != nil {
+			authToken, err := cfg.Tokens.GetTokenByJTI(c.Request.Context(), jtUUID)
+			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					slog.Info("ws rejected: jti not persisted", "jti", claims.JTI, "user_id", claims.UserID)
 				} else {
 					slog.Warn("ws jti lookup failed", "err", err, "jti", claims.JTI)
 				}
+				writeAuthErrorAndClose(conn, CodeInvalidToken)
+				return
+			}
+			// Issue #25: the persisted row must belong to the token's
+			// own user. Defense-in-depth — a token whose uid claim was
+			// altered (or whose jti was persisted for a different user)
+			// is rejected here. Reject before the uid is used so we
+			// never surface a mismatched identity downstream.
+			if authToken.UserID != claims.UserID {
+				slog.Warn("ws rejected: jti belongs to a different user",
+					"jti", claims.JTI, "claims_uid", claims.UserID, "row_uid", authToken.UserID)
 				writeAuthErrorAndClose(conn, CodeInvalidToken)
 				return
 			}

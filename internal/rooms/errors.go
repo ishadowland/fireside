@@ -12,12 +12,6 @@ var (
 	// ErrRoomNotFound: GetRoom / EndRoom when the id has no row.
 	ErrRoomNotFound = errors.New("rooms: room not found")
 
-	// ErrRoomFull: CreateRoom rejected because the host has hit the
-	// per-host active-room cap. (Sprint 1: no cap; reserved for Sprint 2.)
-	// Kept here so the API contract is locked even though no current
-	// code path returns it.
-	ErrRoomFull = errors.New("rooms: room is full")
-
 	// ErrRoomEnded: EndRoom called on a room whose status is already 'ended'.
 	ErrRoomEnded = errors.New("rooms: room has ended")
 

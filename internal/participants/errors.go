@@ -30,4 +30,9 @@ var (
 
 	// ErrRoomNotFound: alias to rooms.ErrRoomNotFound.
 	ErrRoomNotFound = rooms.ErrRoomNotFound
+
+	// ErrRoomEnded: alias to rooms.ErrRoomEnded. JoinRoom rejects new
+	// joins to a room whose status != 'active' (same sentinel as the
+	// messages package; see issue #22/#26 for the 404-vs-409 story).
+	ErrRoomEnded = rooms.ErrRoomEnded
 )

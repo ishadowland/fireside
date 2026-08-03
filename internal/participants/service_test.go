@@ -132,6 +132,27 @@ func TestService_JoinRoom_RoomNotFound(t *testing.T) {
 	}
 }
 
+func TestService_JoinRoom_EndedRoom(t *testing.T) {
+	db := openTestDB(t)
+	defer func() { _ = db.Close() }()
+	truncate(t, db)
+	ps, _, _ := newTestService(t, db)
+
+	ctx := context.Background()
+	hostID := seedUser(t, db, "+8613800000015")
+	roomID := seedRoom(t, db, hostID, 8)
+	if _, err := db.ExecContext(ctx,
+		`UPDATE rooms SET status = 'ended', ended_at = NOW() WHERE id = $1`, roomID); err != nil {
+		t.Fatalf("mark room ended: %v", err)
+	}
+
+	userID := seedUser(t, db, "+8613800000016")
+	_, err := ps.JoinRoom(ctx, roomID, userID)
+	if !errors.Is(err, ErrRoomEnded) {
+		t.Errorf("err = %v, want ErrRoomEnded", err)
+	}
+}
+
 func TestService_JoinRoom_AlreadyOnStage(t *testing.T) {
 	db := openTestDB(t)
 	defer func() { _ = db.Close() }()

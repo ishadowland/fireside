@@ -12,11 +12,12 @@
 - ✅ **JWT + jti replay defense** (Sprint 1-2): `auth.Middleware` for REST;
   `OnAuthenticated(uid, jti, conn)` callback in WS first-frame path
   validates jti against `auth_tokens` table.
-- ⏳ **Business frames** (`room.subscribe`, `room.unsubscribe`, `msg.send`,
-  `msg.created`, `room.ended`, `error`): NOT yet implemented. Lands in
-  WP-6 (Sprint 2). The hub (`internal/hub`) is wired in `main.go`
-  (`wsHub := hub.New(slog.Default())`) and unit-tested, but no handler
-  drives `BroadcastToRoom` until WP-6 lands.
+- ✅ **Business frames** (`room.subscribe`, `room.unsubscribe`, `msg.send`,
+  `msg.created`, `room.ended`, `error`): implemented in WP-6
+  (`internal/ws/dispatch.go` + `internal/ws/business_frames.go`), reviewed
+  (issue #17) and fixed (issue #18 REST→WS broadcast). The post-auth
+  dispatch loop runs in `HandleDispatch`; frames are validated per
+  `business_frames.go`. Sprint 2 extension: agent frames, `msg.ack`.
 
 REST surface for Sprint 1 (covered in `docs/api/openapi.yaml` v0.4.0):
 - `POST /v1/auth/login` (stub-code), `GET /healthz`, dashboard

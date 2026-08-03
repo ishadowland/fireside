@@ -24,11 +24,9 @@ func TestIssueValidateRoundtrip(t *testing.T) {
 	if jti == "" {
 		t.Fatal("Issue returned empty jti")
 	}
-	if !strings.Contains(strings.Split(tok, ".")[1], "") {
-		// basic shape sanity: a JWT has three dot-separated segments
-		if got := strings.Count(tok, "."); got != 2 {
-			t.Fatalf("expected 2 dots in jwt, got %d", got)
-		}
+	// basic shape sanity: a JWT has three dot-separated segments
+	if got := strings.Count(tok, "."); got != 2 {
+		t.Fatalf("expected 2 dots in jwt, got %d", got)
 	}
 
 	claims, err := Validate(testSecret, tok)

@@ -61,7 +61,7 @@ SELECT id, room_id, sender_kind, sender_id, content_type, content,
        mentions, reply_to_id, created_at
 FROM messages
 WHERE room_id = $1
-  AND ($2::CHAR(26) IS NULL OR id < $2::CHAR(26))
+  AND ($2::VARCHAR(26) IS NULL OR id < $2::VARCHAR(26))
 ORDER BY created_at DESC, id DESC
 LIMIT $3
 `

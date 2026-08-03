@@ -151,7 +151,7 @@ func (s *Service) CreateSystemMessage(ctx context.Context, roomID string, conten
 		RoomID:      roomID,
 		SenderKind:  sql.NullString{String: store.SenderKindSystem, Valid: true},
 		SenderID:    sql.NullString{Valid: false}, // MUST be NULL for system per CHECK
-		ContentType: sql.NullString{String: store.SenderKindSystem, Valid: true},
+		ContentType: sql.NullString{String: store.ContentTypeSystem, Valid: true},
 		Content:     content,
 		Mentions:    []byte("[]"),
 		ReplyToID:   sql.NullString{Valid: false},

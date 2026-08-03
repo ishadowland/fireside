@@ -10,7 +10,7 @@
 //   -> 400 {"error":"invalid_request"} (malformed body)
 //
 // JWT payload (ADR-0014): {"uid":"<ulid>","jti":"<uuid>", exp:<unix>}.
-// UID is a 26-char ULID string (CHAR(26) in the users table).
+// UID is a 26-char ULID string (VARCHAR(26) in the users table).
 package auth
 
 import (

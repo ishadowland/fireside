@@ -21,21 +21,25 @@ import (
 // Atomic insert: capacity check ($4) + partial UNIQUE index in one
 // statement. Returns sql.ErrNoRows on capacity miss OR duplicate.
 //
-// Follow-up fix (commit pending): added explicit ::CHAR(26) / ::INT /
+// Follow-up fix (commit pending): added explicit ::VARCHAR(26) / ::INT /
 // ::stage_state casts on every parameter and literal. Without them
 // Postgres returns SQLSTATE 42P08 ("inconsistent types deduced for
 // parameter $2") because the same $2 parameter is reused in two
 // contexts and the $4 int is ambiguous (int vs bigint). Mirrors the
 // ::enum_type cast pattern established in commit `ffdbea4`.
+//
+// Casts use VARCHAR(26) (not the legacy CHAR(26)) — migration 0007
+// converted every ID column to VARCHAR(26), and CHAR(26) would
+// right-pad shorter inputs with spaces (issue #23).
 const joinRoom = `-- name: JoinRoom :one
 INSERT INTO participants (id, room_id, user_id, stage_state, joined_at)
-SELECT $1::CHAR(26),
-       $2::CHAR(26),
-       $3::CHAR(26),
+SELECT $1::VARCHAR(26),
+       $2::VARCHAR(26),
+       $3::VARCHAR(26),
        'on_stage'::stage_state,
        NOW()
 WHERE (SELECT COUNT(*) FROM participants
-       WHERE room_id = $2::CHAR(26)
+       WHERE room_id = $2::VARCHAR(26)
          AND stage_state = 'on_stage'::stage_state) < $4::INT
 ON CONFLICT (room_id, user_id) WHERE stage_state = 'on_stage' DO NOTHING
 RETURNING id, room_id, user_id, stage_state, joined_at, left_at
@@ -60,13 +64,13 @@ func (q *Queries) JoinRoom(ctx context.Context, arg JoinRoomParams) (Participant
 // RETURNING the row directly — caller gets the updated row in one
 // round trip; sql.ErrNoRows means the user was not on_stage.
 //
-// Type casts ($1/$2 -> CHAR(26), 'on_stage' -> stage_state) for
+// Type casts ($1/$2 -> VARCHAR(26), 'on_stage' -> stage_state) for
 // symmetry with JoinRoom.
 const leaveRoom = `-- name: LeaveRoom :one
 UPDATE participants
 SET stage_state = 'off_stage'::stage_state, left_at = NOW()
-WHERE room_id = $1::CHAR(26)
-  AND user_id = $2::CHAR(26)
+WHERE room_id = $1::VARCHAR(26)
+  AND user_id = $2::VARCHAR(26)
   AND stage_state = 'on_stage'::stage_state
 RETURNING id, room_id, user_id, stage_state, joined_at, left_at
 `

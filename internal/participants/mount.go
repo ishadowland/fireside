@@ -62,6 +62,10 @@ func joinRoomHandler(cfg Config) gin.HandlerFunc {
 		switch {
 		case errors.Is(err, rooms.ErrRoomNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "room_not_found"})
+		case errors.Is(err, ErrRoomEnded):
+			// Issue #26: joining an ended room is a conflict, not a
+			// missing room (matches messages' 409 treatment).
+			c.JSON(http.StatusConflict, gin.H{"error": "room_ended"})
 		case errors.Is(err, ErrRoomFull):
 			c.JSON(http.StatusConflict, gin.H{"error": "room_full"})
 		case errors.Is(err, ErrAlreadyOnStage):

@@ -1,10 +1,10 @@
 # Status
 
-> **Phase 1 — Sprint 1 complete (rooms + messages + participants + hub; no Agent, no WS business frames yet).**
+> **Phase 1 — Sprint 1 complete (rooms + messages + participants + hub + WS business frames).**
 > RFC: [`docs/rfc/phase-2-minimal-demo.md`](rfc/phase-2-minimal-demo.md)
 > Milestone: [`Sprint 1: Minimal Demo`](https://github.com/ishadowland/fireside/milestone/1) (issues #2–#12)
 > Sprint 1.5 (deferred Android): tracked separately under WP-9 (issue #11).
-> Sprint 2 (deferred Agent + business frames): tracked under WP-6..WP-8.
+> Sprint 2 (deferred Agent + Dashboard UI + refresh): tracked under WP-7..WP-8.
 
 Last updated: 2026-08-03
 
@@ -13,8 +13,10 @@ Last updated: 2026-08-03
 **Sprint 1 backend stack is complete and end-to-end verified.** Sprint 0
 hello-world is augmented with the rooms/messages/participants REST
 surface, a real PostgreSQL schema (CHAR(26) IDs converted to VARCHAR(26)
-in migration 0007), and an in-process broadcast hub (WP-5) ready to
-be driven by WP-6 WS business frames.
+in migration 0007), an in-process broadcast hub (WP-5), and the WS
+business-frame dispatch loop (WP-6) driven by the hub. REST `end` and
+`POST messages` now fan out `room.ended` / `msg.created` frames to WS
+subscribers (issue #18).
 
 ```text
 $ curl -X POST .../v1/auth/login {phone,code:1234}
@@ -31,10 +33,11 @@ $ curl -X POST .../v1/rooms/:id/messages -H "Bearer $TOKEN" {content}
   → 200 {message: {id, sender_kind: "human", mentions: [], ...}}
 ```
 
-The hub (`internal/hub`) is wired in `main.go` and unit-tested
+The hub (`internal/hub`) is wired in `main.go`, unit-tested
 (10/10 tests pass, including cross-room isolation, dead-conn
-cleanup, and 5-conn × 50-broadcast concurrent). It is not yet
-driven by any WS handler — that lands in WP-6.
+cleanup, and 5-conn × 50-broadcast concurrent), and driven by
+the WP-6 WS dispatch loop and the REST end/messages handlers
+(issue #18).
 
 ## What's done (since the last status)
 
@@ -73,8 +76,26 @@ driven by any WS handler — that lands in WP-6.
   ConnID / StartHeartbeat / MarshalFrame). Concurrency model:
   single sync.RWMutex, atomic two-phase broadcast (snapshot under
   RLock, writes outside). Dead-conn auto-unregister on write failure.
-  Wired in `main.go`; not yet driven by any handler (WP-6).
+  Wired in `main.go` and driven by WP-6 + REST end/messages handlers.
   (commit `761094f`)
+
+### Sprint 1 hub / WS frames (WP-6, 2026-08-03)
+
+- ✅ **WP-6: WS business-frame dispatch** — `internal/ws/dispatch.go`
+  post-auth loop (`room.subscribe`, `room.unsubscribe`, `msg.send`,
+  `heartbeat`, `error`) with per-conn write mutex; frames in
+  `internal/ws/business_frames.go`. (commit `c846c9c`; review fix
+  `fe1d21f` — issue #17: duplicate method, write-race through
+  `safeWriteJSON`, `writeMuMap` leak, dead code)
+- ✅ **REST→WS broadcast** (issue #18, commit `e9a509c`): REST
+  `POST /v1/rooms/:id/messages` and `POST /v1/rooms/:id/end` now
+  fan out `msg.created` / `room.ended` via the hub.
+- ✅ **Ended rooms → 409** (issue #22, commit `e9a509c`): messages
+  returns `ErrRoomEnded` (was 404).
+- ✅ **JoinRoom capacity race** (issue #19, commit `e9a509c`):
+  tx + `SELECT ... FOR UPDATE` serializes concurrent distinct-user joins.
+- ✅ **Idempotent stub login** (issue #21, commit `e9a509c`):
+  `store.IsUniqueViolation` + re-fetch on 23505.
 
 ### Sprint 1 code-review fixes
 
@@ -126,21 +147,17 @@ driven by any WS handler — that lands in WP-6.
 
 - Android UI: `RoomListActivity` + `RoomActivity` + WsClient
   extension for room.subscribe / msg.send / msg.created / room.subscribe.
-  Defer to Sprint 1.5 because the WS business frames
-  (WP-6) are not yet implemented.
+  Defer to Sprint 1.5 (the WS frames are live; dedicated device/emulator
+  verification is the remaining work).
 
-### Sprint 2 (WP-6, WP-7, WP-8)
+### Sprint 2 (WP-7, WP-8)
 
-- **WP-6 WS business frames** — the `internal/ws/HandleConnect`
-  dispatch loop after `auth.welcome`. Frames: `room.subscribe`,
-  `room.unsubscribe`, `msg.send`, `msg.created`, `room.ended`,
-  `error`. The hub is already wired and ready to be driven.
 - **WP-7 REST additions** — `POST /v1/auth/refresh` (refresh
   token), `PATCH /v1/users/me` (display_name), and the full
   `join` / `leave` / `end` REST surface for participants (already
   done in WP-4).
 - **WP-8 Dashboard UI** — `rooms.html` + `room.html` for in-browser
-  chat. The REST API + WS first-frame already work; WP-8 is the
+  chat. The REST API + WS frames already work; WP-8 is the
   client-side HTML / JS layer.
 
 ### Sprint 1 RFC §2.3 deviations (revisit Sprint 2)
@@ -160,15 +177,13 @@ driven by any WS handler — that lands in WP-6.
 
 Sprint 2 priority order:
 
-1. **WP-6 WS business frames** — finish the dispatch loop and
-   drive the existing `internal/hub` package. Unblocks the
-   Sprint 1 demo (2 browsers in dashboard, real-time chat).
-2. **WP-8 Dashboard UI** — once WS frames land, build the
-   client-side HTML / JS to exercise them. This is the
+1. **WP-8 Dashboard UI** — build the client-side HTML / JS to
+   exercise the now-complete REST + WS frames. This is the
    user-visible Sprint 1 demo surface.
-3. **WP-7 REST additions** — `auth/refresh` (for 1h JWT
+2. **WP-7 REST additions** — `auth/refresh` (for 1h JWT
    ergonomics) and `PATCH /users/me` (display name update).
-4. **Sprint 2 ADR review** — re-evaluate D3 (max 8 vs 50) and
+   (Also verify the jti→user match on refresh-issuance, per issue #25.)
+3. **Sprint 2 ADR review** — re-evaluate D3 (max 8 vs 50) and
    D6 (ephemeral vs persistent). The current values are Sprint 1
    demo choices, not design locks.
 

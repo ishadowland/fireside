@@ -32,18 +32,18 @@
 -- Type casts on every literal/parameter to avoid PG SQLSTATE 42P08
 -- ("inconsistent types deduced for parameter $N") — the $4 int
 -- parameter would otherwise be ambiguous (int vs bigint) when only
--- used inside a count comparison. The $2 room_id and stage_state
+-- used inside a count comparison. The $2 room_id, stage_state
 -- 'on_stage' literals get explicit casts for symmetry with the rest
 -- of the codebase (see commit `ffdbea4` which added ::enum_type casts
 -- across the rest of the store).
 INSERT INTO participants (id, room_id, user_id, stage_state, joined_at)
-SELECT $1::CHAR(26),
-       $2::CHAR(26),
-       $3::CHAR(26),
+SELECT $1::VARCHAR(26),
+       $2::VARCHAR(26),
+       $3::VARCHAR(26),
        'on_stage'::stage_state,
        NOW()
 WHERE (SELECT COUNT(*) FROM participants
-       WHERE room_id = $2::CHAR(26)
+       WHERE room_id = $2::VARCHAR(26)
          AND stage_state = 'on_stage'::stage_state) < $4::INT
 ON CONFLICT (room_id, user_id) WHERE stage_state = 'on_stage' DO NOTHING
 RETURNING id, room_id, user_id, stage_state, joined_at, left_at;
@@ -51,12 +51,12 @@ RETURNING id, room_id, user_id, stage_state, joined_at, left_at;
 -- name: LeaveRoom :one
 -- Mark participant off_stage by setting left_at = NOW(). Returns the
 -- updated row, or sql.ErrNoRows if the user wasn't on_stage.
--- Type casts ($1/$2 -> CHAR(26), 'on_stage' -> stage_state) for
+-- Type casts ($1/$2 -> VARCHAR(26), 'on_stage' -> stage_state) for
 -- symmetry with JoinRoom and the rest of the codebase.
 UPDATE participants
 SET stage_state = 'off_stage'::stage_state, left_at = NOW()
-WHERE room_id = $1::CHAR(26)
-  AND user_id = $2::CHAR(26)
+WHERE room_id = $1::VARCHAR(26)
+  AND user_id = $2::VARCHAR(26)
   AND stage_state = 'on_stage'::stage_state
 RETURNING id, room_id, user_id, stage_state, joined_at, left_at;
 

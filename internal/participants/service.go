@@ -76,7 +76,10 @@ func (s *Service) JoinRoom(ctx context.Context, roomID, userID string) (Particip
 		return ParticipantView{}, err
 	}
 	if room.Status != store.RoomStatusActive {
-		return ParticipantView{}, ErrRoomNotFound
+		// Issue #26: a room that exists but is ended is not "not found".
+		// Distinguish it so the mount can return 409 (matches the
+		// messages package's ErrRoomEnded treatment from issue #22).
+		return ParticipantView{}, ErrRoomEnded
 	}
 
 	// 2) Serialize the capacity check + insert via tx + row lock.
@@ -221,19 +224,18 @@ func (s *Service) joinRoomSerialized(ctx context.Context, p store.JoinRoomParams
 }
 
 // joinRoomSQL is the inline atomic INSERT statement. Mirrors
-// db/queries/participants.sql (kept verbatim there for sqlc). The
-// ::CHAR(26) casts are a legacy of the WP-4 reviewer fix in commit
-// acf9415; per issue #23 they should be cleaned up in a follow-up
-// (changing to ::VARCHAR or removing entirely).
+// db/queries/participants.sql (kept verbatim there for sqlc).
+// Casts are ::VARCHAR(26) per issue #23 (migration 0007 converted
+// the ID columns; CHAR(26) would pad short inputs with spaces).
 const joinRoomSQL = `
 INSERT INTO participants (id, room_id, user_id, stage_state, joined_at)
-SELECT $1::CHAR(26),
-       $2::CHAR(26),
-       $3::CHAR(26),
+SELECT $1::VARCHAR(26),
+       $2::VARCHAR(26),
+       $3::VARCHAR(26),
        'on_stage'::stage_state,
        NOW()
 WHERE (SELECT COUNT(*) FROM participants
-       WHERE room_id = $2::CHAR(26)
+       WHERE room_id = $2::VARCHAR(26)
          AND stage_state = 'on_stage'::stage_state) < $4::INT
 ON CONFLICT (room_id, user_id) WHERE stage_state = 'on_stage' DO NOTHING
 RETURNING id, room_id, user_id, stage_state, joined_at, left_at

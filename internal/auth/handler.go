@@ -70,9 +70,9 @@ func effectiveStubCode(cfg Config) string {
 // If persistence fails, login returns 500 rather than issuing an
 // untrackable token.
 //
-// Sprint 1-3 (ADR-0014): the user's id is a real ULID string (CHAR(26)).
-// Unknown phones are auto-registered with a fresh ulid.Make(); re-login
-// for the same phone finds the existing row.
+// Sprint 1-3 (ADR-0014): the user's id is a real ULID string (VARCHAR(26)
+// post-migration 0007). Unknown phones are auto-registered with a fresh
+// ulid.Make(); re-login for the same phone finds the existing row.
 func LoginHandler(cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req LoginRequest

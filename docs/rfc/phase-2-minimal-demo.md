@@ -1,19 +1,22 @@
 # Phase 2 — Minimal Demo Sprint (Sprint 1)
 
-> **Status**: DCP-4 (Verification) — Sprint 1 complete; Sprint 2 (WS frames / Dashboard UI / refresh / display_name) is the next step.
+> **Status**: DCP-4 (Verification) — Sprint 1 complete (WP-1..WP-6 shipped,
+> REST→WS broadcast wired). Sprint 2 (Dashboard UI / refresh / display_name)
+> is the next step.
 > **Created**: 2026-08-02
-> **Last reconciled with remote `main`**: 2026-08-03 (post-Sprint 1 WP-5)
+> **Last reconciled with remote `main`**: 2026-08-03 (post-Sprint 1 WP-6 + Wave-1 P0 fixes)
 > **Owner**: liuyin (ishadowland)
 > **Sprint window**: ~2 weeks (normal estimate 21d, pessimistic 28d)
 > **Target**: 2 browsers in dashboard can create rooms, join, and exchange
 > messages in real time. Android lands in Sprint 1.5.
 
-> **Reconciliation note (2026-08-03)**: WP-1, WP-2, WP-3, WP-4, WP-5 are
-> shipped and reviewed. WP-6 (WS business frames) is the next WP — when
-> it lands, the Sprint 1 demo target ("2 browsers exchanging real-time
-> messages in dashboard") is achieved end-to-end. WP-7 (REST additions
-> for refresh + display_name) and WP-8 (Dashboard HTML/JS) are
-> independent and can land in any order after WP-6.
+> **Reconciliation note (2026-08-03)**: WP-1 through WP-6 are shipped and
+> reviewed (incl. issue #18 REST→WS broadcast, #19 capacity race, #21
+> idempotent login, #22 ended-room 409). The Sprint 1 demo target ("2
+> browsers exchanging real-time messages in dashboard", §7.2 step 7
+> room.ended) is now achievable end-to-end over REST→WS. WP-7 (REST
+> additions for refresh + display_name) and WP-8 (Dashboard HTML/JS) are
+> independent and can land in any order.
 
 ---
 
