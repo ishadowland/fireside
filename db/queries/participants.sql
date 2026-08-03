@@ -2,22 +2,46 @@
 -- Sprint 1 WP-4: participants queries.
 --
 -- Matches db/migrations/0004_participants.up.sql schema exactly.
+--
+-- Sprint 1-3 fix (issue #15 L-1/L-2): JoinRoom is now atomic — a
+-- single statement that checks capacity AND the partial UNIQUE index,
+-- so 9 concurrent joins to an 8-cap room can no longer all pass the
+-- check. The unique_violation race (L-2) is also closed by the same
+-- atomic statement: ON CONFLICT DO NOTHING + RETURNING returns
+-- sql.ErrNoRows on either a capacity miss OR a duplicate, and the
+-- caller disambiguates via a follow-up GetOnStageParticipant.
+--
+-- Sprint 1-3 fix (issue #15 L-3): LeaveRoom now uses RETURNING to
+-- return the updated row directly, eliminating the prior N+1-ish
+-- UPDATE-then-ListByRoom-then-filter pattern.
 
 -- name: JoinRoom :one
--- Inserts a new on_stage participant row.
--- Caller is responsible for capacity check + UNIQUE collision handling.
--- Returns the new row. Errors:
---   sql.ErrNoRows / unique violation if user is already on_stage in this room.
+-- Atomic join: checks capacity ($4 = max_participants) AND the partial
+-- UNIQUE index in a single statement. Returns the new row, or
+-- sql.ErrNoRows if either constraint failed.
+--
+-- The capacity check uses a correlated subquery against the same
+-- table. Single-instance Postgres + a single INSERT serializes the
+-- count + insert (the row lock the INSERT acquires also locks the
+-- index gap, blocking concurrent inserts until COMMIT). Multi-instance
+-- (Sprint 2+) needs SERIALIZABLE or advisory locks.
+--
+-- Caller disambiguates ErrNoRows via GetOnStageParticipant: if found
+-- -> ErrAlreadyOnStage, else -> ErrRoomFull.
 INSERT INTO participants (id, room_id, user_id, stage_state, joined_at)
-VALUES ($1, $2, $3, 'on_stage', NOW())
+SELECT $1, $2, $3, 'on_stage', NOW()
+WHERE (SELECT COUNT(*) FROM participants
+       WHERE room_id = $2 AND stage_state = 'on_stage') < $4
+ON CONFLICT (room_id, user_id) WHERE stage_state = 'on_stage' DO NOTHING
 RETURNING id, room_id, user_id, stage_state, joined_at, left_at;
 
--- name: LeaveRoom :execresult
--- Mark participant off_stage by setting left_at = NOW().
--- Returns the number of rows updated (1 = success, 0 = not on_stage).
+-- name: LeaveRoom :one
+-- Mark participant off_stage by setting left_at = NOW(). Returns the
+-- updated row, or sql.ErrNoRows if the user wasn't on_stage.
 UPDATE participants
 SET stage_state = 'off_stage', left_at = NOW()
-WHERE room_id = $1 AND user_id = $2 AND stage_state = 'on_stage';
+WHERE room_id = $1 AND user_id = $2 AND stage_state = 'on_stage'
+RETURNING id, room_id, user_id, stage_state, joined_at, left_at;
 
 -- name: ListOnStageByRoom :many
 -- All participants currently on_stage in a room. Used by room detail endpoint.

@@ -18,29 +18,40 @@ import (
 	"context"
 )
 
+// Atomic insert: capacity check ($4) + partial UNIQUE index in one
+// statement. Returns sql.ErrNoRows on capacity miss OR duplicate.
 const joinRoom = `-- name: JoinRoom :one
 INSERT INTO participants (id, room_id, user_id, stage_state, joined_at)
-VALUES ($1, $2, $3, 'on_stage'::stage_state, NOW())
+SELECT $1, $2, $3, 'on_stage'::stage_state, NOW()
+WHERE (SELECT COUNT(*) FROM participants
+       WHERE room_id = $2 AND stage_state = 'on_stage'::stage_state) < $4
+ON CONFLICT (room_id, user_id) WHERE stage_state = 'on_stage' DO NOTHING
 RETURNING id, room_id, user_id, stage_state, joined_at, left_at
 `
 
+// MaxParticipants is the rooms.max_participants cap; the SQL refuses the
+// INSERT atomically if current on_stage count >= this value.
 type JoinRoomParams struct {
-	ID     string
-	RoomID string
-	UserID string
+	ID              string
+	RoomID          string
+	UserID          string
+	MaxParticipants int32
 }
 
 func (q *Queries) JoinRoom(ctx context.Context, arg JoinRoomParams) (Participant, error) {
-	row := q.db.QueryRowContext(ctx, joinRoom, arg.ID, arg.RoomID, arg.UserID)
+	row := q.db.QueryRowContext(ctx, joinRoom, arg.ID, arg.RoomID, arg.UserID, arg.MaxParticipants)
 	var i Participant
 	err := row.Scan(&i.ID, &i.RoomID, &i.UserID, &i.StageState, &i.JoinedAt, &i.LeftAt)
 	return i, err
 }
 
-const leaveRoom = `-- name: LeaveRoom :execresult
+// RETURNING the row directly — caller gets the updated row in one
+// round trip; sql.ErrNoRows means the user was not on_stage.
+const leaveRoom = `-- name: LeaveRoom :one
 UPDATE participants
 SET stage_state = 'off_stage'::stage_state, left_at = NOW()
 WHERE room_id = $1 AND user_id = $2 AND stage_state = 'on_stage'::stage_state
+RETURNING id, room_id, user_id, stage_state, joined_at, left_at
 `
 
 type LeaveRoomParams struct {
@@ -48,16 +59,11 @@ type LeaveRoomParams struct {
 	UserID string
 }
 
-func (q *Queries) LeaveRoom(ctx context.Context, arg LeaveRoomParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, leaveRoom, arg.RoomID, arg.UserID)
-	if err != nil {
-		return 0, err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	return rows, nil
+func (q *Queries) LeaveRoom(ctx context.Context, arg LeaveRoomParams) (Participant, error) {
+	row := q.db.QueryRowContext(ctx, leaveRoom, arg.RoomID, arg.UserID)
+	var i Participant
+	err := row.Scan(&i.ID, &i.RoomID, &i.UserID, &i.StageState, &i.JoinedAt, &i.LeftAt)
+	return i, err
 }
 
 const listOnStageByRoom = `-- name: ListOnStageByRoom :many

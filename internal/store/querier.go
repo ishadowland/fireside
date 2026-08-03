@@ -30,7 +30,7 @@ type Querier interface {
 
 	// Sprint 1 WP-1 (participants)
 	JoinRoom(ctx context.Context, arg JoinRoomParams) (Participant, error)
-	LeaveRoom(ctx context.Context, arg LeaveRoomParams) (int64, error)
+	LeaveRoom(ctx context.Context, arg LeaveRoomParams) (Participant, error)
 	ListOnStageByRoom(ctx context.Context, roomID string) ([]Participant, error)
 	ListByRoom(ctx context.Context, roomID string) ([]Participant, error)
 	ListOnStageByUser(ctx context.Context, userID string) ([]Participant, error)
