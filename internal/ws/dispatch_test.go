@@ -14,12 +14,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -201,8 +199,12 @@ func TestDispatch_SubscribeAndSend(t *testing.T) {
 	defer func() { _ = bobConn.Close() }()
 
 	// Subscribe both to the room.
-	aliceConn.WriteJSON(RoomSubscribe{Type: FrameTypeRoomSubscribe, RoomID: roomID})
-	bobConn.WriteJSON(RoomSubscribe{Type: FrameTypeRoomSubscribe, RoomID: roomID})
+	if err := aliceConn.WriteJSON(RoomSubscribe{Type: FrameTypeRoomSubscribe, RoomID: roomID}); err != nil {
+		t.Fatalf("alice subscribe: %v", err)
+	}
+	if err := bobConn.WriteJSON(RoomSubscribe{Type: FrameTypeRoomSubscribe, RoomID: roomID}); err != nil {
+		t.Fatalf("bob subscribe: %v", err)
+	}
 	if !waitForFrame(t, aliceConn, FrameTypeRoomSubscribed, 2*time.Second) {
 		t.Fatal("alice did not receive room.subscribed")
 	}
@@ -273,8 +275,12 @@ func TestDispatch_SendWithoutSubscribe(t *testing.T) {
 	aliceID, aliceJTI := seedUser(t, db, "+861380000010")
 	bobID, bobJTI := seedUser(t, db, "+861380000011")
 	roomID := seedRoom(t, db, aliceID)
-	ps.JoinRoom(context.Background(), roomID, aliceID)
-	ps.JoinRoom(context.Background(), roomID, bobID)
+	if _, err := ps.JoinRoom(context.Background(), roomID, aliceID); err != nil {
+		t.Fatalf("alice join: %v", err)
+	}
+	if _, err := ps.JoinRoom(context.Background(), roomID, bobID); err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
 
 	jwtSecret := []byte("test-secret-must-be-32-bytes-long-xxxx")
 	gin.SetMode(gin.TestMode)
@@ -297,14 +303,16 @@ func TestDispatch_SendWithoutSubscribe(t *testing.T) {
 	defer server.Close()
 
 	aliceConn := dialAndAuth(t, server, aliceID, aliceJTI)
-	defer aliceConn.Close()
+	defer func() { _ = aliceConn.Close() }()
 
 	// Send msg.send without subscribing first.
-	aliceConn.WriteJSON(MsgSend{
+	if err := aliceConn.WriteJSON(MsgSend{
 		Type:    FrameTypeMsgSend,
 		RoomID:  roomID,
 		Content: "should fail",
-	})
+	}); err != nil {
+		t.Fatalf("alice write msg.send: %v", err)
+	}
 	if !waitForErrorCode(t, aliceConn, CodeNotSubscribed, 2*time.Second) {
 		t.Fatal("expected not_subscribed error")
 	}
@@ -349,12 +357,14 @@ func TestDispatch_SubscribeUnknownRoom(t *testing.T) {
 	defer server.Close()
 
 	aliceConn := dialAndAuth(t, server, aliceID, aliceJTI)
-	defer aliceConn.Close()
+	defer func() { _ = aliceConn.Close() }()
 
-	aliceConn.WriteJSON(RoomSubscribe{
+	if err := aliceConn.WriteJSON(RoomSubscribe{
 		Type:   FrameTypeRoomSubscribe,
 		RoomID: "01HXY0000000000000000000Z", // doesn't exist
-	})
+	}); err != nil {
+		t.Fatalf("alice subscribe: %v", err)
+	}
 	if !waitForErrorCode(t, aliceConn, CodeRoomNotFound, 2*time.Second) {
 		t.Fatal("expected room_not_found error")
 	}
@@ -472,14 +482,3 @@ func authSign(userID, jti string, secret []byte) (string, error) {
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return tok.SignedString(secret)
 }
-
-// authSignHelper is an alias kept for readability.
-func authSignHelper(userID, jti string, secret []byte) (string, error) {
-	return authSign(userID, jti, secret)
-}
-
-// silence unused
-var (
-	_ = sync.Mutex{}
-	_ = fmt.Sprintf
-)

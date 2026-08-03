@@ -6,61 +6,15 @@
 package hub
 
 import (
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
-
-// newConnPair returns a (server, client) websocket.Conn pair backed
-// by an in-memory net.Pipe. Both sides share a single "session".
-func newConnPair(t *testing.T) (*websocket.Conn, *websocket.Conn) {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := (&websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}).
-			Upgrade(w, r, nil)
-		if err != nil {
-			t.Errorf("upgrade: %v", err)
-			return
-		}
-		// Echo pump: read forever, write back, until conn closes.
-		go func() {
-			for {
-				mt, msg, err := c.ReadMessage()
-				if err != nil {
-					return
-				}
-				if err := c.WriteMessage(mt, msg); err != nil {
-					return
-				}
-			}
-		}()
-	}))
-	defer srv.Close()
-
-	u, _ := url.Parse(srv.URL)
-	u.Scheme = "ws"
-
-	clientConn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
-	if err != nil {
-		t.Fatalf("client dial: %v", err)
-	}
-
-	// The server-side conn is the one Upgrade() returned. We need to
-	// capture it in a thread-safe way. Easiest: upgrade the second
-	// conn to be the server's via a second handler in the same srv.
-	// For now, fall back: use a 2-conn httptest approach.
-	t.Cleanup(func() {
-		clientConn.Close()
-	})
-	return nil, clientConn
-}
 
 // connPair returns a real pair. We use a custom helper because
 // httptest.NewServer's handler can't easily hand back the upgraded
@@ -89,13 +43,13 @@ func connPair(t *testing.T) (*websocket.Conn, *websocket.Conn) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	t.Cleanup(func() { clientConn.Close() })
+	t.Cleanup(func() { _ = clientConn.Close() })
 
 	res := <-ch
 	if res.err != nil {
 		t.Fatalf("upgrade: %v", res.err)
 	}
-	t.Cleanup(func() { res.server.Close() })
+	t.Cleanup(func() { _ = res.server.Close() })
 	return res.server, clientConn
 }
 
@@ -235,7 +189,7 @@ func TestHub_BroadcastToRoom_DeadConnCleanup(t *testing.T) {
 	h.Register(bobCli, "r1", "bob") // bob: client conn this time for variety
 
 	// Kill alice's conn (server side) — broadcasts will fail to write.
-	aliceSrv.Close()
+	_ = aliceSrv.Close()
 
 	// Wait briefly for the close to propagate.
 	time.Sleep(100 * time.Millisecond)
@@ -358,26 +312,3 @@ func TestHub_UnregisterFromRoom(t *testing.T) {
 		t.Error("expected still in r3")
 	}
 }
-
-// UnregisterFromRoom is a helper that we added mid-design; expose it
-// to the test file (the test would otherwise need to call Unregister
-// which removes from all rooms).
-func (h *Hub) UnregisterFromRoom(conn *websocket.Conn, roomID string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if room, ok := h.rooms[roomID]; ok {
-		delete(room, conn)
-		if len(room) == 0 {
-			delete(h.rooms, roomID)
-		}
-	}
-	if rooms, ok := h.byConn[conn]; ok {
-		delete(rooms, roomID)
-	}
-}
-
-// silence unused import warnings
-var (
-	_ = strings.HasPrefix
-	_ = net.IPv4zero
-)

@@ -177,16 +177,3 @@ func (f *MsgSend) Validate() string {
 	}
 	return ""
 }
-
-// isHeartbeat is a thin predicate for the heartbeat frame (no payload).
-func isHeartbeat(t string) bool { return t == FrameTypeHeartbeat }
-
-// isAnyFrame returns true for any business frame type we recognize.
-func isAnyFrame(t string) bool {
-	switch t {
-	case FrameTypeRoomSubscribe, FrameTypeRoomUnsubscribe,
-		FrameTypeMsgSend, FrameTypeHeartbeat:
-		return true
-	}
-	return false
-}
