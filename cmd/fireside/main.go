@@ -74,21 +74,6 @@ func main() {
 		StubCode: cfg.SMSStubCode,
 	})
 
-	wspkg.Mount(engine, wspkg.Config{
-		JWTSecret:    cfg.JWTSecret,
-		HelloTimeout: 5 * time.Second, // ADR-0007 mandate (5s)
-		CheckOrigin: func(r *http.Request) bool {
-			// Sprint 0: allow any origin (dev). Production sets a strict
-			// allow-list via CORS_ALLOWED_ORIGINS env (deferred).
-			return true
-		},
-		OnAuthenticated: func(uid string, jti string, _ *websocket.Conn) {
-			slog.Info("ws authenticated", "user_id", uid, "jti", jti)
-		},
-		Tokens: queries,  // Sprint 1-2: jti replay defense
-		Hub:    wsHub,     // Sprint 1 WP-5: broadcast hub
-	})
-
 	// Sprint 1-2: periodic cleanup of expired auth_tokens rows so the
 	// table doesn't grow unbounded (ADR-0007 §Risks → "Replay").
 	startTokenCleanup(queries, 5*time.Minute)
@@ -117,6 +102,34 @@ func main() {
 	participants.MountRoomParticipants(engine, participants.Config{
 		Service:        participantsService,
 		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
+	})
+
+	// Sprint 1 WP-6: WS endpoint with post-auth business-frame
+	// dispatch loop. Replaces the Sprint 0 wspkg.Mount — kept
+	// intact as the auth-only path for tests.
+	wspkg.MountBusiness(engine, wspkg.Config{
+		JWTSecret:    cfg.JWTSecret,
+		HelloTimeout: 5 * time.Second, // ADR-0007 mandate (5s)
+		CheckOrigin: func(r *http.Request) bool {
+			// Sprint 0: allow any origin (dev). Production sets a strict
+			// allow-list via CORS_ALLOWED_ORIGINS env (deferred).
+			return true
+		},
+		OnAuthenticated: func(uid string, jti string, _ *websocket.Conn) {
+			slog.Info("ws authenticated", "user_id", uid, "jti", jti)
+		},
+		Tokens: queries,  // Sprint 1-2: jti replay defense
+		Hub:    wsHub,     // Sprint 1 WP-5: broadcast hub
+		DispatchDeps: &wspkg.DispatchDeps{
+			// Sprint 1 WP-6: post-auth business-frame dispatch loop.
+			// Wired so room.subscribe / msg.send / room.unsubscribe
+			// are functional in WS clients.
+			Hub:                 wsHub,
+			MessagesService:     messagesService,
+			RoomsService:        roomsService,
+			ParticipantsService: participantsService,
+			Log:                 slog.Default(),
+		},
 	})
 
 	srv := &http.Server{

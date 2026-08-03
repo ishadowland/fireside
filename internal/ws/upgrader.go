@@ -61,6 +61,11 @@ type Config struct {
 
 	// Tokens enables jti replay defense. nil = check skipped (tests).
 	Tokens TokenLookup
+
+	// DispatchDeps, if non-nil, kicks off the post-auth business-frame
+	// dispatch loop after auth.welcome is sent. nil = sprint 0 behavior
+	// (no post-auth frames; the conn just idles until the client closes).
+	DispatchDeps *DispatchDeps
 }
 
 // HandleConnect returns the Gin handler for GET /ws/v1/connect.
@@ -168,7 +173,15 @@ func HandleConnect(cfg Config) gin.HandlerFunc {
 
 		cfg.OnAuthenticated(claims.UserID, claims.JTI, conn)
 
-		// Sprint 0: just block until the client disconnects. We do NOT
+		// Sprint 1 WP-6: if dispatch deps are wired, run the post-auth
+		// business-frame dispatch loop. Otherwise fall back to Sprint 0
+		// behavior (idle until peer closes).
+		if cfg.DispatchDeps != nil {
+			HandleDispatch(c.Request.Context(), conn, claims.UserID, cfg.DispatchDeps)
+			return
+		}
+
+		// Sprint 0 fallback: just block until the client disconnects. We do NOT
 		// install ping/pong handlers or a read loop with intent — the
 		// gorilla default read deadline expires after the auth.hello
 		// deadline; we clear it so the connection can stay open for

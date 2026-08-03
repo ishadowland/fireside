@@ -175,9 +175,12 @@ func (h *Hub) BroadcastToRoom(roomID string, frame []byte, except *websocket.Con
 	// Phase 2: write to each recipient outside the lock.
 	var dead []*websocket.Conn
 	for _, r := range recips {
-		_ = r.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		err := r.conn.WriteMessage(websocket.TextMessage, frame)
-		if err != nil {
+		// Sprint 1: defer to the per-process writer hook. The ws
+		// package installs a closure that holds the per-conn write
+		// mutex (safeWriteMessage), so BroadcastToRoom is safe to
+		// call from any goroutine. If the hook is the default
+		// (no lock), this is just a WriteMessage.
+		if err := writeHook(r.conn, h.log, websocket.TextMessage, frame); err != nil {
 			h.log.Warn("BroadcastToRoom: write failed; will unregister",
 				"conn", r.connID, "user_id", r.userID, "err", err)
 			dead = append(dead, r.conn)
@@ -363,9 +366,50 @@ func (h *Hub) RoomMembers(roomID string) []string {
 	return out
 }
 
-// MarshalFrame is a small helper for handlers that want to broadcast
-// a JSON frame without writing json.Marshal calls inline. Returns
-// (json-encoded bytes, error).
+// UnregisterFromRoom removes conn from a single room. Idempotent:
+// removing from a room the conn is not in is a no-op.
+//
+// Unlike Unregister (which removes from ALL rooms and is intended
+// for conn close), UnregisterFromRoom is for the WS
+// room.unsubscribe handler.
+func (h *Hub) UnregisterFromRoom(conn *websocket.Conn, roomID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if room, ok := h.rooms[roomID]; ok {
+		delete(room, conn)
+		if len(room) == 0 {
+			delete(h.rooms, roomID)
+		}
+	}
+	if rooms, ok := h.byConn[conn]; ok {
+		delete(rooms, roomID)
+	}
+}
+
+// writeHook is the per-process function used to write frames to a
+// conn. The ws package installs a closure that holds the per-conn
+// write mutex (see wspkg.SetHubWriter / safeWriteMessage). The hub
+// package never depends on the ws package — the indirection is
+// set up at Mount time.
+//
+// default: writes directly to the conn. Suitable for tests /
+// processes that do not run the ws dispatch loop.
+var writeHook = func(conn *websocket.Conn, _ *slog.Logger, messageType int, data []byte) error {
+	return conn.WriteMessage(messageType, data)
+}
+
+// HubWrite is exported for ws.SetHubWriter to call. Mirrors the
+// per-process writeHook so the hub doesn't have to import ws.
+func HubWrite(conn *websocket.Conn, log *slog.Logger, messageType int, data []byte) error {
+	return writeHook(conn, log, messageType, data)
+}
+
+// SetHubWriter replaces the function the hub uses to write frames.
+// Callers (the ws package) install a closure that holds the
+// per-conn write mutex.
+func SetHubWriter(fn func(*websocket.Conn, *slog.Logger, int, []byte) error) {
+	writeHook = fn
+}
 func MarshalFrame(v any) ([]byte, error) {
 	return json.Marshal(v)
 }
