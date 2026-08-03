@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"github.com/ishadowland/fireside/internal/hub"
 	"github.com/ishadowland/fireside/internal/store"
 )
 
@@ -48,6 +49,15 @@ type Config struct {
 	// stub: just log. Sprint 1+ will register the conn in the per-room
 	// hub here. userID is a 26-char ULID string (ADR-0014).
 	OnAuthenticated func(userID string, jti string, conn *websocket.Conn)
+
+	// Hub is the in-process broadcast hub (Sprint 1 WP-5). When the
+	// conn upgrades, it's auto-registered with the hub. Sprint 1
+	// does not yet implement room.subscribe/unsubscribe (WP-6);
+	// conns registered at upgrade time are tagged as the user's
+	// primary connection for that user_id and will be used for direct
+	// messages and future per-user notifications. nil disables
+	// hub integration (tests / Sprint 0).
+	Hub *hub.Hub
 
 	// Tokens enables jti replay defense. nil = check skipped (tests).
 	Tokens TokenLookup

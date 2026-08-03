@@ -28,6 +28,7 @@ import (
 	"github.com/ishadowland/fireside/internal/auth"
 	"github.com/ishadowland/fireside/internal/config"
 	"github.com/ishadowland/fireside/internal/dashboard"
+	"github.com/ishadowland/fireside/internal/hub"
 	"github.com/ishadowland/fireside/internal/messages"
 	"github.com/ishadowland/fireside/internal/participants"
 	"github.com/ishadowland/fireside/internal/rooms"
@@ -55,6 +56,12 @@ func main() {
 
 	queries := newUserStore(cfg.PostgresDSN)
 
+	// Sprint 1 WP-5: in-process broadcast hub. Created before
+	// services (so services can hold a reference if they need to
+	// publish; Sprint 1 only the WS handler publishes directly).
+	wsHub := hub.New(slog.Default())
+	defer func() { _ = wsHub }() // future: stop heartbeats
+
 	auth.Mount(engine, auth.Config{
 		JWTSecret:      cfg.JWTSecret,
 		AccessTokenTTL: cfg.JWTAccessTTL,
@@ -78,7 +85,8 @@ func main() {
 		OnAuthenticated: func(uid string, jti string, _ *websocket.Conn) {
 			slog.Info("ws authenticated", "user_id", uid, "jti", jti)
 		},
-		Tokens: queries, // Sprint 1-2: jti replay defense
+		Tokens: queries,  // Sprint 1-2: jti replay defense
+		Hub:    wsHub,     // Sprint 1 WP-5: broadcast hub
 	})
 
 	// Sprint 1-2: periodic cleanup of expired auth_tokens rows so the
