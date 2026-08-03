@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ishadowland/fireside/internal/store"
 )
@@ -56,6 +57,18 @@ func (f *fakeStore) InsertUser(_ context.Context, arg store.InsertUserParams) (s
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	u := store.User{ID: arg.ID, Phone: arg.Phone}
+	if existing, dup := f.users[arg.Phone]; dup {
+		// Issue #21 fix support: the production code now catches
+		// SQLSTATE 23505 and retries via GetUserByPhone. The
+		// fakeStore simulates the same by returning a
+		// pgconn.PgError(Code="23505") on duplicate phone, which
+		// is exactly what the Postgres server returns.
+		_ = existing
+		return store.User{}, &pgconn.PgError{
+			Code:    "23505",
+			Message: "duplicate key value violates unique constraint \"idx_user_phone\"",
+		}
+	}
 	f.users[arg.Phone] = u
 	return u, nil
 }
@@ -291,4 +304,79 @@ func TestLoginHandlerNilTokensKeepsLegacyBehavior(t *testing.T) {
 	if body.Code != 200 {
 		t.Fatalf("login = %d, want 200; body=%s", body.Code, body.Body.String())
 	}
+}
+// TestLoginHandler_ConcurrentFirstLogin_Idempotent (issue #21 fix) verifies
+// that two simultaneous logins for the same brand-new phone both succeed
+// and return the SAME user_id.
+//
+// The test does NOT exercise a real DB race; it uses a fakeStore
+// configured to simulate SQLSTATE 23505 on duplicate phone inserts —
+// the production code's pgerrcode.IsUniqueViolation catch then retries
+// via GetUserByPhone, which returns the existing row.
+//
+// A real-DB integration version is in
+// internal/auth/handler_race_test.go (skipped when FIRESIDE_TEST_DSN is
+// unset).
+func TestLoginHandler_ConcurrentFirstLogin_Idempotent(t *testing.T) {
+	t.Parallel()
+	fs := newFakeStore()
+	r := gin.New()
+	Mount(r, Config{
+		JWTSecret:      testSecret,
+		AccessTokenTTL: 15 * time.Minute,
+		Users:          fs,
+	})
+
+	const phone = "+8613800009999"
+
+	// Fire 20 simultaneous login requests for the same new phone.
+	// Only the first should win the INSERT; the rest must see a
+	// unique violation and recover via GetUserByPhone. All 20 must
+	// succeed and produce the same user_id (decoded from the JWT).
+	const N = 20
+	var wg sync.WaitGroup
+	userIDs := make([]string, N)
+	codes := make([]int, N)
+	wg.Add(N)
+	for i := 0; i < N; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			body := postJSON(t, r, "/v1/auth/login",
+				`{"phone":"`+phone+`","code":"1234"}`)
+			codes[i] = body.Code
+			var resp LoginResponse
+			if err := json.Unmarshal(body.Body.Bytes(), &resp); err == nil {
+				userIDs[i] = userIDFromToken(t, resp.Token)
+			}
+		}()
+	}
+	wg.Wait()
+
+	for i := 0; i < N; i++ {
+		if codes[i] != http.StatusOK {
+			t.Errorf("goroutine %d: status = %d, want 200", i, codes[i])
+		}
+		if userIDs[i] == "" {
+			t.Errorf("goroutine %d: user_id is empty (login failed?)", i)
+		}
+	}
+	// All results must be the same user_id (idempotent under race).
+	first := userIDs[0]
+	for i := 1; i < N; i++ {
+		if userIDs[i] != first {
+			t.Errorf("goroutine %d: user_id = %q, want %q (race not handled — issue #21 not fixed)", i, userIDs[i], first)
+		}
+	}
+}
+
+// userIDFromToken parses the JWT (signed with testSecret in this
+// package) and returns the uid claim. Used by race tests.
+func userIDFromToken(t *testing.T, tokenStr string) string {
+	t.Helper()
+	claims, err := Validate(testSecret, tokenStr)
+	if err != nil {
+		t.Fatalf("validate test token: %v", err)
+	}
+	return claims.UserID
 }

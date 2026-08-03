@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 )
 
 type DBTX interface {
@@ -25,3 +26,27 @@ type Queries struct {
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{db: tx}
 }
+
+// BeginTx starts a new transaction. The store layer's DBTX
+// interface doesn't expose a begin method (DB and Tx satisfy DBTX
+// identically), so this helper performs a type assertion back to
+// *sql.DB. Returns ErrNoTxSupport if the underlying DBTX is not a
+// concrete *sql.DB (e.g. a mock or wrapped driver used in tests).
+//
+// Issue #19 fix: callers in service-layer code that need to run
+// multiple queries atomically with a row-level lock
+// (`SELECT ... FOR UPDATE`) use this helper to begin the tx, then
+// run queries through `Queries.WithTx(tx)` for the rest of the tx.
+func (q *Queries) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	db, ok := q.db.(*sql.DB)
+	if !ok {
+		return nil, ErrNoTxSupport
+	}
+	return db.BeginTx(ctx, opts)
+}
+
+// ErrNoTxSupport is returned by BeginTx when the underlying DBTX is
+// not a concrete *sql.DB (i.e. the store was constructed with a Tx
+// or a non-database/sql driver). Services that need tx semantics
+// must be wired with a real DB at construction time.
+var ErrNoTxSupport = errors.New("store: BeginTx requires *sql.DB, not Tx or other DBTX")

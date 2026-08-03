@@ -84,6 +84,9 @@ func main() {
 	rooms.Mount(engine, rooms.Config{
 		Service:        roomsService,
 		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
+		// Issue #18 fix: REST EndRoom now broadcasts room.ended
+		// over WS via the hub.
+		Hub: wsHub,
 	})
 
 	// Sprint 1 WP-3: messages REST endpoints
@@ -92,6 +95,9 @@ func main() {
 	messages.MountRoomMessages(engine, messages.Config{
 		Service:        messagesService,
 		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
+		// Issue #18 fix: REST POST messages now broadcasts
+		// msg.created over WS via the hub.
+		Hub: wsHub,
 	})
 
 	// Sprint 1 WP-4: participants REST endpoints

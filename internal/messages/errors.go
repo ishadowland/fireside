@@ -27,6 +27,15 @@ var (
 	// ErrRoomNotFound: alias to rooms.ErrRoomNotFound. See package doc.
 	ErrRoomNotFound = rooms.ErrRoomNotFound
 
+	// ErrRoomEnded: room exists in the DB but status='ended'. Alias
+	// to rooms.ErrRoomEnded. Sprint 1's CreateMessage previously
+	// conflated this with ErrRoomNotFound (returning 404 for both),
+	// which made the WS dispatch's rooms.ErrRoomEnded switch arm dead
+	// code (issue #22). Both packages now share the canonical
+	// sentinel so a handler can match on either side. REST maps to
+	// 409, WS to CodeRoomEnded.
+	ErrRoomEnded = rooms.ErrRoomEnded
+
 	// ErrNotOnStage: caller (sender_kind='human') is not currently
 	// on_stage in the target room. Sprint 1 returns this even though
 	// RFC §5 §8 documents that "anyone can post once subscribed"; we

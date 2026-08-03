@@ -73,6 +73,21 @@ func seedRoom(t *testing.T, db *sql.DB, hostID string) string {
 	return id
 }
 
+// seedEndedRoom inserts a room and immediately marks it ended.
+// Used to verify the issue #22 fix: ended rooms must return
+// ErrRoomEnded (not ErrRoomNotFound) for both CreateMessage and
+// CreateSystemMessage.
+func seedEndedRoom(t *testing.T, db *sql.DB, hostID string) string {
+	t.Helper()
+	id := "01HXYENDED00000000000000R0"
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO rooms (id, host_user_id, name, max_participants, status, ended_at) VALUES ($1, $2, 'ended-test', 8, 'ended', NOW())`,
+		id, hostID); err != nil {
+		t.Fatalf("seed ended room: %v", err)
+	}
+	return id
+}
+
 // seedParticipant inserts an on_stage participant row.
 func seedParticipant(t *testing.T, db *sql.DB, roomID, userID string) {
 	t.Helper()
@@ -363,5 +378,50 @@ func TestService_GetMessage_NotFound(t *testing.T) {
 	_, err := svc.GetMessage(context.Background(), "01HXY0000000000000000000ZZ")
 	if !errors.Is(err, ErrMessageNotFound) {
 		t.Errorf("err = %v, want ErrMessageNotFound", err)
+	}
+}
+// TestService_CreateMessage_EndedRoom (issue #22 fix) verifies that
+// posting to a room with status='ended' returns ErrRoomEnded (not
+// ErrRoomNotFound). The REST mount maps ErrRoomEnded to 409; the WS
+// dispatch maps it to CodeRoomEnded.
+func TestService_CreateMessage_EndedRoom(t *testing.T) {
+	db := openTestDB(t)
+	defer func() { _ = db.Close() }()
+	truncate(t, db)
+	svc, _ := newTestService(t, db)
+	ctx := context.Background()
+
+	hostID := seedUser(t, db, "+861380000910")
+	roomID := seedEndedRoom(t, db, hostID)
+
+	_, err := svc.CreateMessage(ctx, hostID, roomID, CreateMessageRequest{
+		Content: "after ended",
+	})
+	if !errors.Is(err, ErrRoomEnded) {
+		t.Errorf("err = %v, want ErrRoomEnded", err)
+	}
+	if errors.Is(err, ErrRoomNotFound) {
+		t.Errorf("err also matches ErrRoomNotFound (issue #22 not fixed)")
+	}
+}
+
+// TestService_CreateSystemMessage_EndedRoom (issue #22 fix) verifies
+// the system-message path also distinguishes ended from missing.
+func TestService_CreateSystemMessage_EndedRoom(t *testing.T) {
+	db := openTestDB(t)
+	defer func() { _ = db.Close() }()
+	truncate(t, db)
+	svc, _ := newTestService(t, db)
+	ctx := context.Background()
+
+	hostID := seedUser(t, db, "+861380000911")
+	roomID := seedEndedRoom(t, db, hostID)
+
+	err := svc.CreateSystemMessage(ctx, roomID, `{"event":"system.after.ended"}`)
+	if !errors.Is(err, ErrRoomEnded) {
+		t.Errorf("err = %v, want ErrRoomEnded", err)
+	}
+	if errors.Is(err, ErrRoomNotFound) {
+		t.Errorf("err also matches ErrRoomNotFound (issue #22 not fixed)")
 	}
 }

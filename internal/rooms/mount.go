@@ -10,13 +10,17 @@
 package rooms
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/ishadowland/fireside/internal/auth"
+	"github.com/ishadowland/fireside/internal/hub"
 )
 
 // Config is what Mount needs from main.go.
@@ -26,6 +30,15 @@ type Config struct {
 	// to the whole /v1/rooms group; downstream handlers pull the
 	// authenticated user_id via auth.UserIDFromContext(c).
 	AuthMiddleware gin.HandlerFunc
+	// Hub is the in-process broadcast hub (Sprint 1 WP-5). When
+	// non-nil, the endRoomHandler broadcasts a room.ended frame to
+	// every conn subscribed to the room. Required for RFC §7.2 demo
+	// step 7 ("User A clicks End Room → both see room.ended").
+	//
+	// Issue #18 fix: REST EndRoom now fans out the WS notification
+	// instead of leaving it to the WS-only path (which was never
+	// wired — see internal/ws.BroadcastRoomEnded dead wire-up).
+	Hub *hub.Hub
 }
 
 // Mount registers the rooms REST routes on r.
@@ -122,7 +135,21 @@ func endRoomHandler(cfg Config) gin.HandlerFunc {
 		case err != nil:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 		default:
-			c.JSON(http.StatusOK, EndRoomResponse{RoomID: roomID, Status: "ended"})
+			// Issue #18 fix: REST EndRoom now broadcasts the WS
+			// room.ended notification. Fires AFTER the DB update
+			// (above) so subscribers see consistent state.
+			if cfg.Hub != nil {
+				frame, _ := json.Marshal(map[string]any{
+					"type":        "room.ended",
+					"room_id":     roomID,
+					"ended_by":    actorID,
+					"server_time": time.Now().Unix(),
+				})
+				delivered := cfg.Hub.BroadcastToRoom(roomID, frame, nil)
+				slog.Default().Debug("rooms.endRoom: room.ended broadcast",
+					"room_id", roomID, "delivered", delivered)
+			}
+			c.JSON(http.StatusOK, gin.H{"room_id": roomID, "status": "ended"})
 		}
 	}
 }

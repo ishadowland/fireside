@@ -16,19 +16,39 @@
 package messages
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/ishadowland/fireside/internal/auth"
+	"github.com/ishadowland/fireside/internal/hub"
 )
 
 // Config is what Mount needs from main.go.
 type Config struct {
 	Service        *Service
 	AuthMiddleware gin.HandlerFunc
+	// Hub is the in-process broadcast hub (Sprint 1 WP-5). When
+	// non-nil, the createMessageHandler broadcasts a msg.created
+	// frame to every conn subscribed to the room after persisting
+	// the message.
+	//
+	// Issue #18 fix: REST POST messages now fans out the WS
+	// notification alongside the WS dispatch's handleMsgSend.
+	// Without this, a REST-sent message wouldn't reach WS clients
+	// in real time (only via the next list / re-fetch).
+	//
+	// De-dup note: a client that uses BOTH WS msg.send and REST
+	// POST messages may receive the msg.created frame twice on its
+	// WS connection (once from WS dispatch, once from REST handler).
+	// Sprint 1 simplification; Sprint 2 may add a client-side
+	// idempotency key or an "origin" flag to suppress.
+	Hub *hub.Hub
 }
 
 // MountRoomMessages registers messages routes under /v1/rooms/:id/messages.
@@ -70,6 +90,9 @@ func createMessageHandler(cfg Config) gin.HandlerFunc {
 		switch {
 		case errors.Is(err, ErrRoomNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "room_not_found"})
+		case errors.Is(err, ErrRoomEnded):
+			// Issue #22 fix: room exists but is ended → 409, not 404.
+			c.JSON(http.StatusConflict, gin.H{"error": "room_ended"})
 		case errors.Is(err, ErrNotOnStage):
 			c.JSON(http.StatusForbidden, gin.H{"error": "not_on_stage"})
 		case errors.Is(err, ErrInvalidArg):
@@ -77,6 +100,17 @@ func createMessageHandler(cfg Config) gin.HandlerFunc {
 		case err != nil:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 		default:
+			// Issue #18 fix: REST POST messages now broadcasts the
+			// msg.created frame via the hub after persisting.
+			if cfg.Hub != nil {
+				frame, _ := json.Marshal(map[string]any{
+					"type":    "msg.created",
+					"message": msg,
+				})
+				delivered := cfg.Hub.BroadcastToRoom(roomID, frame, nil)
+				slog.Default().Debug("messages.create: msg.created broadcast",
+					"room_id", roomID, "msg_id", msg.ID, "delivered", delivered, "ts", time.Now().Unix())
+			}
 			c.JSON(http.StatusOK, CreateMessageResponse{Message: msg})
 		}
 	}

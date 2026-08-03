@@ -359,23 +359,6 @@ func TestHub_UnregisterFromRoom(t *testing.T) {
 	}
 }
 
-// UnregisterFromRoom is a helper that we added mid-design; expose it
-// to the test file (the test would otherwise need to call Unregister
-// which removes from all rooms).
-func (h *Hub) UnregisterFromRoom(conn *websocket.Conn, roomID string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if room, ok := h.rooms[roomID]; ok {
-		delete(room, conn)
-		if len(room) == 0 {
-			delete(h.rooms, roomID)
-		}
-	}
-	if rooms, ok := h.byConn[conn]; ok {
-		delete(rooms, roomID)
-	}
-}
-
 // silence unused import warnings
 var (
 	_ = strings.HasPrefix

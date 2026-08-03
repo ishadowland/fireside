@@ -10,7 +10,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
+	"sync"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -326,5 +328,81 @@ func TestService_GetOnStageParticipant_NotFound(t *testing.T) {
 	_, err := ps.GetOnStageParticipant(ctx, roomID, "01HXY0000000000000000000Z")
 	if !errors.Is(err, ErrNotOnStage) {
 		t.Errorf("err = %v, want ErrNotOnStage", err)
+	}
+}
+// TestService_JoinRoom_ConcurrentCapacity (issue #19 fix) verifies that
+// concurrent JoinRoom calls by DIFFERENT users to a capacity-2 room
+// leave exactly 2 on_stage rows (not 3+). The pre-fix SQL's
+// "atomic INSERT ... WHERE count < max" did not serialize distinct-user
+// concurrency under Postgres MVCC + READ COMMITTED.
+//
+// Sprint 1: row lock on rooms.id (in a tx) serializes the count + insert.
+// If this test ever fails, the tx-wrapped JoinRoom fix is broken.
+func TestService_JoinRoom_ConcurrentCapacity(t *testing.T) {
+	db := openTestDB(t)
+	defer func() { _ = db.Close() }()
+	truncate(t, db)
+	ps, _, _ := newTestService(t, db)
+
+	ctx := context.Background()
+	hostID := seedUser(t, db, "+861380000920")
+	roomID := seedRoom(t, db, hostID, 2) // capacity 2
+
+	// Seed 10 distinct users. Phone tail varies so seedUser (which
+	// slices the last 2 chars into the user_id) produces unique
+	// ULIDs even when phones share a prefix.
+	const N = 10
+	users := make([]string, N)
+	for i := 0; i < N; i++ {
+		phone := fmt.Sprintf("+86138000%05d", 92000+i)
+		users[i] = seedUser(t, db, phone)
+	}
+
+	// Fire N concurrent JoinRoom calls.
+	var wg sync.WaitGroup
+	wg.Add(N)
+	errs := make([]error, N)
+	for i := 0; i < N; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			_, err := ps.JoinRoom(ctx, roomID, users[i])
+			errs[i] = err
+		}()
+	}
+	wg.Wait()
+
+	// Count successful joins.
+	successCount := 0
+	roomFullCount := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			successCount++
+		case errors.Is(err, ErrRoomFull):
+			roomFullCount++
+		default:
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+
+	// Expect exactly capacity (2) successful joins; the rest must
+	// be ErrRoomFull.
+	if successCount != 2 {
+		t.Errorf("success count = %d, want 2 (capacity)", successCount)
+	}
+	if roomFullCount != N-2 {
+		t.Errorf("room full count = %d, want %d", roomFullCount, N-2)
+	}
+
+	// DB must have exactly 2 on_stage rows.
+	var onStageCount int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM participants WHERE room_id = $1 AND stage_state = 'on_stage'`,
+		roomID).Scan(&onStageCount); err != nil {
+		t.Fatalf("count on_stage: %v", err)
+	}
+	if onStageCount != 2 {
+		t.Errorf("DB on_stage count = %d, want 2", onStageCount)
 	}
 }

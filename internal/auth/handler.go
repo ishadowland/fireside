@@ -147,6 +147,18 @@ func resolveUserID(ctx context.Context, users UserStore, phone string) (string, 
 		Phone: phone,
 	})
 	if err != nil {
+		// Issue #21 fix: two simultaneous stub-login calls for a
+		// brand-new phone both miss the lookup and both insert; the
+		// loser hits idx_user_phone (SQLSTATE 23505). Treat as
+		// success: re-GetUserByPhone and return that row. This makes
+		// login idempotent under first-time concurrent load.
+		if store.IsUniqueViolation(err) {
+			user, lerr := users.GetUserByPhone(ctx, phone)
+			if lerr == nil {
+				return user.ID, nil
+			}
+			return "", lerr
+		}
 		return "", err
 	}
 	return inserted.ID, nil

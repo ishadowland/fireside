@@ -43,19 +43,34 @@ func NewService(q *store.Queries, rooms *rooms.Service, messages *messages.Servi
 //
 // Preconditions:
 //   - room exists and status='active'
+// JoinRoom creates a new on_stage participant row in the given room
+// for the given user. Triggers a system message
+// `{"event":"participant.joined","user_id":"<id>"}` so the hub (WP-5)
+// can broadcast.
+//
+// Preconditions:
+//   - room exists and status='active'
 //   - room.participant_count < room.max_participants
 //   - user does not already have an on_stage row in this room
 //
-// Returns ErrRoomNotFound / ErrRoomFull / ErrAlreadyOnStage.
+// Concurrency (issue #19 fix):
+//   - The capacity check used to be done in a single INSERT ... WHERE
+//     count < max ON CONFLICT DO NOTHING. That works for SAME-user
+//     double-join (ON CONFLICT blocks) but does NOT serialize
+//     DISTINCT-user joins: 9 concurrent joins by different users to
+//     an 8-cap room all see `count = 8 < 8 = max` (false) and all
+//     insert (each ON CONFLICT only blocks their own row).
+//   - This fix wraps the check + insert in a tx that first takes a
+//     row-level lock on the rooms row (`SELECT ... FOR UPDATE`).
+//     Postgres serializes all concurrent JoinRoom txs that try to
+//     lock the same rooms.id. After the lock, the count + insert
+//     run with serialized visibility.
 //
-// Sprint 1-3 fix (issue #15 L-1/L-2): the SQL is atomic — capacity
-// check + UNIQUE enforcement in a single INSERT. 9 concurrent joins
-// to an 8-cap room can no longer all pass the check. ErrNoRows is
-// disambiguated via GetOnStageParticipant: if a row exists it was a
-// duplicate (ErrAlreadyOnStage), else it was a capacity miss
-// (ErrRoomFull).
+// Returns ErrRoomNotFound / ErrRoomFull / ErrAlreadyOnStage.
 func (s *Service) JoinRoom(ctx context.Context, roomID, userID string) (ParticipantView, error) {
-	// 1) Room must exist and be active.
+	// 1) Room must exist and be active (separate query — outside the
+	// tx — to short-circuit without taking a tx lock when the room
+	// is missing/ended).
 	room, _, err := s.rooms.GetRoom(ctx, roomID)
 	if err != nil {
 		return ParticipantView{}, err
@@ -64,30 +79,36 @@ func (s *Service) JoinRoom(ctx context.Context, roomID, userID string) (Particip
 		return ParticipantView{}, ErrRoomNotFound
 	}
 
-	// 2) Atomic INSERT. Capacity + UNIQUE enforced in the SQL itself.
+	// 2) Serialize the capacity check + insert via tx + row lock.
 	id := ulid.Make().String()
-	row, err := s.q.JoinRoom(ctx, store.JoinRoomParams{
+	row, err := s.joinRoomSerialized(ctx, store.JoinRoomParams{
 		ID:              id,
 		RoomID:          roomID,
 		UserID:          userID,
 		MaxParticipants: room.MaxParticipants,
 	})
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			s.log.Error("JoinRoom: insert failed", "room_id", roomID, "user_id", userID, "err", err)
-			return ParticipantView{}, err
+		if errors.Is(err, store.ErrUniqueViolationRoomFull) {
+			return ParticipantView{}, ErrRoomFull
 		}
-		// ErrNoRows = either capacity miss or duplicate. Disambiguate.
-		if existing, gerr := s.q.GetOnStageParticipant(ctx, store.GetOnStageParticipantParams{
-			RoomID: roomID,
-			UserID: userID,
-		}); gerr == nil && existing.ID != "" {
+		if errors.Is(err, store.ErrUniqueViolationAlreadyOnStage) {
 			return ParticipantView{}, ErrAlreadyOnStage
 		}
-		return ParticipantView{}, ErrRoomFull
+		if errors.Is(err, sql.ErrNoRows) {
+			// The store layer maps the atomic-INSERT no-row case to
+			// ErrUniqueViolationRoomFull | ErrAlreadyOnStage via the
+			// existing GetOnStageParticipant disambiguation; that path
+			// should not fall through here. If it does, treat as
+			// RoomFull (capacity miss) — defensive.
+			return ParticipantView{}, ErrRoomFull
+		}
+		s.log.Error("JoinRoom: insert failed", "room_id", roomID, "user_id", userID, "err", err)
+		return ParticipantView{}, err
 	}
 
-	// 3) System message (best-effort).
+	// 3) System message (best-effort: log on failure but don't fail
+	// the join — the user IS on stage, the event log is a side
+	// effect).
 	payload, _ := json.Marshal(map[string]string{
 		"event":   "participant.joined",
 		"user_id": userID,
@@ -100,7 +121,123 @@ func (s *Service) JoinRoom(ctx context.Context, roomID, userID string) (Particip
 	return participantViewFromStore(row), nil
 }
 
-// LeaveRoom transitions the user's on_stage row in the room to
+// joinRoomSerialized wraps the capacity check + atomic INSERT in a
+// tx. First it acquires a row-level lock on the rooms row
+// (`SELECT ... FOR UPDATE`); the lock serializes any concurrent
+// JoinRoom txs for the same room, so the count + insert see a
+// consistent snapshot. Then it runs the atomic INSERT ... WHERE count
+// < max ON CONFLICT DO NOTHING from store/participants.sql.
+//
+// Issue #19 fix: replaces the previous race-prone "atomic INSERT
+// with WHERE clause" with a tx-wrapped + row-locked check. Postgres
+// MVCC + READ COMMITTED isolation are sufficient — the row lock on
+// rooms.id ensures serial execution; the ON CONFLICT on participants
+// is now redundant but kept as a defense-in-depth (a missing row
+// lock would still let ON CONFLICT block same-user double-join).
+func (s *Service) joinRoomSerialized(ctx context.Context, p store.JoinRoomParams) (store.Participant, error) {
+	// Begin a tx via store.Queries.BeginTx (added in issue #19
+	// fix). The tx holds a row-level lock on the rooms row, which
+	// serializes concurrent JoinRoom txs for the same room.
+	tx, err := s.q.BeginTx(ctx, nil)
+	if err != nil {
+		return store.Participant{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// 1) Row lock on the rooms row (serializes concurrent JoinRoom
+	// txs for the same room).
+	var lockedMax int32
+	if err := tx.QueryRowContext(ctx,
+		`SELECT max_participants FROM rooms WHERE id = $1 FOR UPDATE`,
+		p.RoomID,
+	).Scan(&lockedMax); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Race: room was deleted between the GetRoom above and
+			// the FOR UPDATE here. Treat as not-found.
+			return store.Participant{}, rooms.ErrRoomNotFound
+		}
+		return store.Participant{}, err
+	}
+	// Trust the lock holder's view of max_participants. (The
+	// earlier GetRoom saw room.Status; that's not changed by
+	// concurrent tx because EndRoom takes the same row lock.)
+
+	// 2) Count on_stage participants.
+	var onStageCount int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM participants WHERE room_id = $1 AND stage_state = 'on_stage'`,
+		p.RoomID,
+	).Scan(&onStageCount); err != nil {
+		return store.Participant{}, err
+	}
+	if int32(onStageCount) >= lockedMax {
+		// Capacity miss. Return a typed sentinel so the caller maps
+		// to ErrRoomFull. We use a unique sentinel (not
+		// sql.ErrNoRows) so it's distinguishable from the
+		// already-on-stage branch.
+		return store.Participant{}, store.ErrUniqueViolationRoomFull
+	}
+
+	// 3) Already-on-stage check (race-tight: the partial UNIQUE
+	// index `uniq_participant_room_user_active` is the source of
+	// truth, but we check explicitly for a clearer error).
+	var existingID string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT id FROM participants WHERE room_id = $1 AND user_id = $2 AND stage_state = 'on_stage'`,
+		p.RoomID, p.UserID,
+	).Scan(&existingID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return store.Participant{}, err
+	}
+	if existingID != "" {
+		return store.Participant{}, store.ErrUniqueViolationAlreadyOnStage
+	}
+
+	// 4) Atomic INSERT with ON CONFLICT (defense in depth — if two
+	// somehow slipped past the lock, the partial UNIQUE index still
+	// blocks same-user double-join).
+	var i store.Participant
+	row := tx.QueryRowContext(ctx, joinRoomSQL,
+		p.ID, p.RoomID, p.UserID, lockedMax,
+	)
+	if err := row.Scan(&i.ID, &i.RoomID, &i.UserID, &i.StageState, &i.JoinedAt, &i.LeftAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Defensive: shouldn't happen with the row lock + count
+			// check, but if the COUNT < max WHERE clause still
+			// rejects, classify it.
+			return store.Participant{}, store.ErrUniqueViolationRoomFull
+		}
+		if store.IsUniqueViolation(err) {
+			// partial UNIQUE index caught a same-user double-join
+			// that slipped past the explicit check.
+			return store.Participant{}, store.ErrUniqueViolationAlreadyOnStage
+		}
+		return store.Participant{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return store.Participant{}, err
+	}
+	return i, nil
+}
+
+// joinRoomSQL is the inline atomic INSERT statement. Mirrors
+// db/queries/participants.sql (kept verbatim there for sqlc). The
+// ::CHAR(26) casts are a legacy of the WP-4 reviewer fix in commit
+// acf9415; per issue #23 they should be cleaned up in a follow-up
+// (changing to ::VARCHAR or removing entirely).
+const joinRoomSQL = `
+INSERT INTO participants (id, room_id, user_id, stage_state, joined_at)
+SELECT $1::CHAR(26),
+       $2::CHAR(26),
+       $3::CHAR(26),
+       'on_stage'::stage_state,
+       NOW()
+WHERE (SELECT COUNT(*) FROM participants
+       WHERE room_id = $2::CHAR(26)
+         AND stage_state = 'on_stage'::stage_state) < $4::INT
+ON CONFLICT (room_id, user_id) WHERE stage_state = 'on_stage' DO NOTHING
+RETURNING id, room_id, user_id, stage_state, joined_at, left_at
+`
 // off_stage, recording left_at. Triggers a system message
 // `{"event":"participant.left","user_id":"<id>"}`.
 //

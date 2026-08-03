@@ -51,9 +51,14 @@ func NewService(q *store.Queries, rooms *rooms.Service, log *slog.Logger) *Servi
 //
 // On success returns the new MessageView (with ID generated server-side).
 //
-// Returns ErrRoomNotFound / ErrNotOnStage / ErrInvalidArg.
+// Returns ErrRoomNotFound / ErrRoomEnded / ErrNotOnStage / ErrInvalidArg.
+// ErrRoomEnded vs ErrRoomNotFound: a room that exists but is ended
+// is *conflict* (409) not *not-found* (404). The split was added in
+// the fix for issue #22 — prior to that, ended rooms were reported
+// as 404, which (a) was wrong, and (b) made the WS dispatch's
+// rooms.ErrRoomEnded branch dead code.
 func (s *Service) CreateMessage(ctx context.Context, actorUserID, roomID string, req CreateMessageRequest) (MessageView, error) {
-	// 1) Room must exist and be active.
+	// 1) Room must exist.
 	room, parts, err := s.rooms.GetRoom(ctx, roomID)
 	if errors.Is(err, rooms.ErrRoomNotFound) {
 		return MessageView{}, ErrRoomNotFound
@@ -62,10 +67,12 @@ func (s *Service) CreateMessage(ctx context.Context, actorUserID, roomID string,
 		s.log.Error("CreateMessage: room lookup failed", "room_id", roomID, "err", err)
 		return MessageView{}, err
 	}
+	// 1a) Room must be active. Returned as ErrRoomEnded so the
+	// REST mount maps to 409 and the WS dispatch maps to
+	// CodeRoomEnded. Previously this branch returned ErrRoomNotFound,
+	// which collapsed two distinct conditions.
 	if room.Status != store.RoomStatusActive {
-		// Sprint 1: ended rooms reject new messages. Sprint 2 may
-		// allow posting to ended rooms before archival (Q3 decision).
-		return MessageView{}, ErrRoomNotFound
+		return MessageView{}, ErrRoomEnded
 	}
 
 	// 2) Actor must be on_stage.
@@ -117,7 +124,9 @@ func (s *Service) CreateMessage(ctx context.Context, actorUserID, roomID string,
 // services (e.g. participants service writes "user joined" events
 // during JoinRoom). NOT exposed to handlers.
 //
-// Returns ErrRoomNotFound / ErrInvalidArg.
+// Returns ErrRoomNotFound / ErrRoomEnded / ErrInvalidArg. See
+// CreateMessage for the distinction; CreateSystemMessage uses the
+// same pair.
 func (s *Service) CreateSystemMessage(ctx context.Context, roomID string, content string) error {
 	// Validate room existence (no on_stage check for system messages).
 	room, _, err := s.rooms.GetRoom(ctx, roomID)
@@ -128,7 +137,7 @@ func (s *Service) CreateSystemMessage(ctx context.Context, roomID string, conten
 		return err
 	}
 	if room.Status != store.RoomStatusActive {
-		return ErrRoomNotFound
+		return ErrRoomEnded
 	}
 	if content == "" {
 		return fmt.Errorf("%w: content required", ErrInvalidArg)
