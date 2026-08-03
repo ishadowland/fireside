@@ -25,14 +25,12 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/ishadowland/fireside/internal/auth"
 	"github.com/ishadowland/fireside/internal/hub"
 	"github.com/ishadowland/fireside/internal/messages"
 	"github.com/ishadowland/fireside/internal/participants"
@@ -104,6 +102,9 @@ func HandleDispatch(
 		if deps != nil && deps.Hub != nil {
 			deps.Hub.Unregister(conn)
 		}
+		// Drop the per-conn write mutex so writeMuMap doesn't grow
+		// without bound across connect/disconnect cycles.
+		releaseWriteMu(conn)
 		_ = conn.Close()
 	}()
 
@@ -329,16 +330,18 @@ func handleMsgSend(
 
 // writeBusinessError sends a business error frame to the conn.
 // Best-effort: if the write fails we log and return.
+//
+// MUST serialize through the per-conn write mutex like every other
+// post-auth write: hub broadcasts (safeWriteMessage) can be running
+// on another goroutine, and writing here without the lock would race
+// with them (gorilla panics on concurrent writes).
 func writeBusinessError(conn *websocket.Conn, log *slog.Logger, code, message, roomID string) {
-	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	if err := conn.WriteJSON(BusinessError{
+	safeWriteJSON(conn, log, BusinessError{
 		Type:    "error",
 		Code:    code,
 		Message: message,
 		RoomID:  roomID,
-	}); err != nil {
-		log.Warn("writeBusinessError: write failed", "err", err)
-	}
+	})
 }
 
 // hubWrite is removed; see the hub.SetHubWriter function (hub
@@ -436,24 +439,3 @@ func BroadcastRoomEnded(ctx context.Context, deps *DispatchDeps, roomID, endedBy
 	deps.Hub.BroadcastToRoom(roomID, raw, nil)
 }
 
-// httpUpgradeError is a tiny helper for callers that want to
-// distinguish upgrade failures from later dispatch errors.
-func httpUpgradeError(err error) *HTTPError {
-	return &HTTPError{Code: http.StatusBadRequest, Err: err}
-}
-
-// HTTPError is the typed error for ws.HandleConnect's upgrade path.
-// Kept here (not in upgrader.go) so this file is self-contained.
-type HTTPError struct {
-	Code int
-	Err  error
-}
-
-func (e *HTTPError) Error() string { return e.Err.Error() }
-func (e *HTTPError) Unwrap() error { return e.Err }
-
-// unused but referenced to keep imports stable
-var (
-	_ = auth.UserIDFromContext
-	_ = http.MethodGet
-)
