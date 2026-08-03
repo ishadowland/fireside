@@ -9,7 +9,11 @@ Fireside is an async-first roundtable platform where a human host can pull in ot
 
 ## Status
 
-✅ **Phase 1 — Sprint 1 complete (CI green).** End-to-end loop works:
+✅ **Phase 1 — Sprint 1 complete (CI green; WS broadcast lands in Sprint 2).**
+Sprint 1 ships the REST surface (rooms + messages + participants) end-to-end.
+The WS business-frame dispatch (msg.send / room.subscribe / etc.) lands
+in WP-6; until then the in-process broadcast hub (`internal/hub`) is wired
+but not driven by any handler. End-to-end first-frame loop already works:
 stub-code login → JWT (ULID `user_id`, 15-min TTL) → WS `auth.hello` →
 `auth.welcome` → Postgres-backed with `InsertToken` jti replay defense.
 
@@ -17,14 +21,16 @@ What's in:
 
 | Area | State |
 |---|---|
-| Backend | Gin + Gorilla WS on `:18080`, single-port (ADR-0004) |
+| Backend | Gin + Gorilla WS on `:8080`, single-port (ADR-0004) |
 | Auth | HS256 JWT, ULID `user_id` (ADR-0014, `oklog/ulid/v2`) |
-| Persistence | sqlc `internal/store/` over pgx v5; `users`/`auth_tokens` schema |
+| Persistence | hand-augmented `internal/store/` over pgx v5; `users` / `auth_tokens` / `rooms` / `participants` / `messages` schema |
 | Replay defense | jti persisted on login, checked on WS first-frame (ADR-0007 §Risks) |
-| DeepTutor borrows | agent.question/answer, 3-layer memory, agent.progress, hunk diff (ADR-0015..0018) |
-| Android | Compose `ConnectActivity` + `WsClient`; reads ULID string `user_id` |
+| REST surface | `/v1/rooms`, `/v1/rooms/:id/messages`, `/v1/rooms/:id/join|leave|end` (WP-2..WP-4) |
+| Hub | `internal/hub` with 11 methods + 10/10 unit tests; wired in `main.go` (WP-5) |
+| DeepTutor borrows | agent.question/answer, 3-layer memory, agent.progress, hunk diff (ADR-0015..0018) — design only, Sprint 2+ |
+| Android | Compose `ConnectActivity` + `WsClient`; reads ULID string `user_id` (Sprint 0) |
 | Local testing | `/dashboard/` loopback-only (ADR-0019); auto stub-login, no Android emulator needed |
-| CI | GitHub Actions: sqlc verify, migrations up/down, go test, golangci-lint v2 — all ✓ |
+| CI | GitHub Actions: sqlc v1.27.0 verify, migrations up/down, integration tests with `FIRESIDE_TEST_DSN` (`fireside_test`), go test, golangci-lint v2 — all ✓ |
 
 See:
 - [`STATUS.md`](./STATUS.md) — current phase & next steps
@@ -43,10 +49,10 @@ Requires Go 1.22+, Docker (for the Postgres 16 sidecar), and Node 20+ (for Andro
 cp .env.example .env                  # then edit JWT_SECRET at minimum
 make db.up                            # docker compose up -d postgres (waits healthy)
 make migrate.up                       # apply db/migrations/*.up.sql
-make backend.run                      # boot Gin on :18080
+make backend.run                      # boot Gin on :8080
 
 # In a browser (loopback only):
-xdg-open http://localhost:18080/dashboard/
+xdg-open http://localhost:8080/dashboard/
 # Auto stub-logs in, opens WS, prints auth.welcome — no Android needed.
 ```
 
@@ -54,12 +60,12 @@ Or hit the API directly:
 
 ```sh
 # 1. Get a token
-TOKEN=$(curl -s -X POST localhost:18080/v1/auth/login \
+TOKEN=$(curl -s -X POST localhost:8080/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"phone":"+8613800138000","code":"1234"}' | jq -r .token)
 
 # 2. Round-trip the WS handshake
-#    (wscat, websocat, or any browser WS client to ws://localhost:18080/ws/v1/connect)
+#    (wscat, websocat, or any browser WS client to ws://localhost:8080/ws/v1/connect)
 #    first frame: {"type":"auth.hello","token":"$TOKEN"}
 #    server reply: {"type":"auth.welcome","user_id":"01HXYZ...","jti":"...","server_time":...}
 ```

@@ -1,19 +1,19 @@
 # Phase 2 — Minimal Demo Sprint (Sprint 1)
 
-> **Status**: DCP-2 (Planning) — awaiting DCP-3 (Development) kickoff
+> **Status**: DCP-4 (Verification) — Sprint 1 complete; Sprint 2 (WS frames / Dashboard UI / refresh / display_name) is the next step.
 > **Created**: 2026-08-02
-> **Last reconciled with remote `main`**: 2026-08-02 (merge commit `dc6de96`)
+> **Last reconciled with remote `main`**: 2026-08-03 (post-Sprint 1 WP-5)
 > **Owner**: liuyin (ishadowland)
 > **Sprint window**: ~2 weeks (normal estimate 21d, pessimistic 28d)
 > **Target**: 2 browsers in dashboard can create rooms, join, and exchange
 > messages in real time. Android lands in Sprint 1.5.
 
-> **⚠️ Reconciliation note**: Sprint 1-1 / 1-2 / 1-3 + CI hardening +
-> Issue #1 were implemented by a parallel agent on remote `main` between
-> 2026-07-31 and 2026-08-02, **before this RFC was written**. As a result,
-> several items in §2.3 (ULID migration, replay defense) are already
-> implemented; this RFC's remaining scope (WP-1 through WP-10) is still
-> open work for rooms + messages + hub + WS frames + dashboard.
+> **Reconciliation note (2026-08-03)**: WP-1, WP-2, WP-3, WP-4, WP-5 are
+> shipped and reviewed. WP-6 (WS business frames) is the next WP — when
+> it lands, the Sprint 1 demo target ("2 browsers exchanging real-time
+> messages in dashboard") is achieved end-to-end. WP-7 (REST additions
+> for refresh + display_name) and WP-8 (Dashboard HTML/JS) are
+> independent and can land in any order after WP-6.
 
 ---
 
@@ -54,21 +54,22 @@
 
 ### 2.3 Deviations from existing ADRs / design docs
 
-> **Status as of 2026-08-02 merge with remote `main`**: items marked ✅
-> have already been implemented in remote commits and **supersede** the
-> Sprint 1 deviations planned here. The RFC is kept as the *forward-looking
-> plan* for WP-1 through WP-10 (rooms / messages / hub / WS / dashboard),
-> with the deviation notes retained so the audit trail of "why" is preserved.
+> **Status as of 2026-08-03**: WP-1, WP-2, WP-3, WP-4, WP-5 shipped
+> with reviewer fixes (#13 CHAR(26), #14 errors.Is, #15 SQLSTATE 42P08).
+> Most deviations below are now resolved or assigned to a concrete WP.
+> Remaining open items are revisited in Sprint 2.
 
-| Original decision | Sprint 1 plan | Remote status (2026-08-02) |
+| Original decision | Sprint 1 plan | Remote status (2026-08-03) |
 |---|---|---|
-| D3: Max 50 participants per room | Max **8** (Q7) | ⏳ Evaluate in WP-1 schema |
-| D6: Ephemeral messages, room end clears | Room end **not implemented** (Q3); `keep_messages_on_end` flag (Q4) | ⏳ Evaluate in WP-2 room model |
-| ADR-0014: Sprint 1 ULID migration | Defer to Sprint 2 (Q1) | ✅ **Done** in Sprint 1-3 (`0739943`) |
+| D3: Max 50 participants per room | Max **8** (Q7) | ⏳ Sprint 1 ships at 8 (DB CHECK 1..50); revisit in Sprint 2 |
+| D6: Ephemeral messages, room end clears | Room end **not implemented** (Q3); `keep_messages_on_end` flag (Q4) | ⏳ Implemented in WP-2: `EndRoom` writes `status=ended` + `ended_at`; message-clearing stays for Sprint 2 |
+| ADR-0014: Sprint 1 ULID migration | Defer to Sprint 2 (Q1) | ✅ **Done** in Sprint 1-3 (`0739943`); WP-1/2/3/4 also use CHAR(26) ULID; further CHAR→VARCHAR in migration `0007` (`061690e`) |
 | ADR-0007 §Risks → Replay: `InsertToken` mandatory | Not called in Sprint 1; Sprint 1.5 (WP-9.6) | ✅ **Done** in Sprint 1-2 (`dbe0a82`) |
-| design/04 state machine: Room.active → ending → ended | `ending` / `ended` not implemented | ⏳ Evaluate in WP-2 room model |
-| design/01: User has `display_name` field | Add in this sprint (Q6) | ⏳ Implement in WP-1 migration `0005_users_display_name` |
+| design/04 state machine: Room.active → ending → ended | `ending` / `ended` not implemented | ⏳ WP-2 implements the `active`/`ended` binary state machine (no `ending` transition; revisit Sprint 2 if multi-stage cleanup is needed) |
+| design/01: User has `display_name` field | Add in this sprint (Q6) | ✅ **Done** in WP-1 migration `0006_users_display_name` (`12550b5`) |
 | Issue #1: `TestValidateTampered` fails | Fix in WP-0.1 | ✅ **Done** (`d738757`) — by tampering payload, not signature |
+| RFC §4 WP-5: `internal/hub` package | WP-5 (planned) | ✅ **Done** (`761094f`) — wired in `main.go`, 10/10 unit tests; awaits WP-6 driver |
+| RFC §4 WP-1: rooms / participants / messages migrations | WP-1 (planned) | ✅ **Done** (`12550b5`) — 4 migrations + sqlc query files |
 
 ---
 

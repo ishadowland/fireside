@@ -3,6 +3,27 @@
 > Message frame format, routing rules, error handling.
 > 状态：🚧 Draft v0.1
 
+## Sprint 1 implementation status (2026-08-03)
+
+- ✅ **First-frame handshake** (ADR-0007): `auth.hello` → `auth.welcome` / `auth.error`,
+  5s hello timeout enforced via `WriteControl(FormatCloseMessage(1008))` then `Close()`.
+  See `internal/ws/upgrader.go` + `internal/ws/first_frame.go`. Test coverage:
+  `internal/ws/upgrader_test.go` (4 tests).
+- ✅ **JWT + jti replay defense** (Sprint 1-2): `auth.Middleware` for REST;
+  `OnAuthenticated(uid, jti, conn)` callback in WS first-frame path
+  validates jti against `auth_tokens` table.
+- ⏳ **Business frames** (`room.subscribe`, `room.unsubscribe`, `msg.send`,
+  `msg.created`, `room.ended`, `error`): NOT yet implemented. Lands in
+  WP-6 (Sprint 2). The hub (`internal/hub`) is wired in `main.go`
+  (`wsHub := hub.New(slog.Default())`) and unit-tested, but no handler
+  drives `BroadcastToRoom` until WP-6 lands.
+
+REST surface for Sprint 1 (covered in `docs/api/openapi.yaml` v0.4.0):
+- `POST /v1/auth/login` (stub-code), `GET /healthz`, dashboard
+- `POST /v1/rooms`, `GET /v1/rooms`, `GET /v1/rooms/:id`, `POST /v1/rooms/:id/end`
+- `POST /v1/rooms/:id/messages`, `GET /v1/rooms/:id/messages?since=<ulid>`
+- `POST /v1/rooms/:id/join`, `POST /v1/rooms/:id/leave`
+
 ## 连接层
 
 ### Endpoint
