@@ -40,7 +40,13 @@ jobs:
           cache: true
 
       - name: Install sqlc
-        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+        # Sprint 1 tech-debt fix (issue #16 L-1): pin to v1.27.0.
+        # `go install @latest` resolves to v1.31+ which requires Go
+        # 1.26+; CI is pinned to Go 1.22. The version mismatch silently
+        # switches the runtime to go1.26.5 and breaks subsequent steps
+        # whose shell-level Go is the explicit 1.22 toolchain.
+        # v1.27.0 is the last release that works with Go 1.22.
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.27.0
 
       - name: Install golang-migrate
         run: |
