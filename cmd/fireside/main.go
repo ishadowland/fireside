@@ -31,6 +31,7 @@ import (
 	"github.com/ishadowland/fireside/internal/hub"
 	"github.com/ishadowland/fireside/internal/messages"
 	"github.com/ishadowland/fireside/internal/participants"
+	"github.com/ishadowland/fireside/internal/users"
 	"github.com/ishadowland/fireside/internal/rooms"
 	"github.com/ishadowland/fireside/internal/store"
 	wspkg "github.com/ishadowland/fireside/internal/ws"
@@ -92,6 +93,7 @@ func main() {
 	// Sprint 1 WP-3: messages REST endpoints
 	// (POST /v1/rooms/:id/messages, GET ...). Same auth middleware.
 	messagesService := messages.NewService(queries, roomsService, slog.Default())
+	usersService := users.NewService(queries, slog.Default())
 	messages.MountRoomMessages(engine, messages.Config{
 		Service:        messagesService,
 		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
@@ -108,6 +110,12 @@ func main() {
 	participants.MountRoomParticipants(engine, participants.Config{
 		Service:        participantsService,
 		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
+	})
+
+	users.Mount(engine, users.Config{
+		Service:        usersService,
+		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
+		Log:            slog.Default(),
 	})
 
 	// Sprint 1 WP-6: WS endpoint with post-auth business-frame

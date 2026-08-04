@@ -10,34 +10,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/ishadowland/fireside/internal/rooms"
 	"github.com/ishadowland/fireside/internal/store"
+
+	"github.com/ishadowland/fireside/internal/testutil"
 )
-
-const testDSNEnv = "FIRESIDE_TEST_DSN"
-
-func testDSN() string { return os.Getenv(testDSNEnv) }
-
-func openTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-	dsn := testDSN()
-	if dsn == "" {
-		t.Skipf("skipping: %s not set", testDSNEnv)
-	}
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
-	}
-	if err := db.PingContext(context.Background()); err != nil {
-		t.Fatalf("db ping: %v", err)
-	}
-	return db
-}
 
 func truncate(t *testing.T, db *sql.DB) {
 	t.Helper()
@@ -107,7 +88,7 @@ func newTestService(t *testing.T, db *sql.DB) (*Service, *rooms.Service) {
 }
 
 func TestService_CreateMessage_OK(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -149,7 +130,7 @@ func TestService_CreateMessage_OK(t *testing.T) {
 }
 
 func TestService_CreateMessage_RoomNotFound(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -162,7 +143,7 @@ func TestService_CreateMessage_RoomNotFound(t *testing.T) {
 }
 
 func TestService_CreateMessage_NotOnStage(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -180,7 +161,7 @@ func TestService_CreateMessage_NotOnStage(t *testing.T) {
 }
 
 func TestService_CreateMessage_EmptyContent(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -198,7 +179,7 @@ func TestService_CreateMessage_EmptyContent(t *testing.T) {
 }
 
 func TestService_CreateSystemMessage_OK(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -235,7 +216,7 @@ func TestService_CreateSystemMessage_OK(t *testing.T) {
 }
 
 func TestService_ListMessagesByRoom_CursorPagination(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -306,7 +287,7 @@ func TestService_ListMessagesByRoom_CursorPagination(t *testing.T) {
 }
 
 func TestService_ListMessagesByRoom_DefaultAndMaxLimits(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -341,7 +322,7 @@ func TestService_ListMessagesByRoom_DefaultAndMaxLimits(t *testing.T) {
 }
 
 func TestService_GetMessage_OK(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -370,7 +351,7 @@ func TestService_GetMessage_OK(t *testing.T) {
 }
 
 func TestService_GetMessage_NotFound(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -385,7 +366,7 @@ func TestService_GetMessage_NotFound(t *testing.T) {
 // ErrRoomNotFound). The REST mount maps ErrRoomEnded to 409; the WS
 // dispatch maps it to CodeRoomEnded.
 func TestService_CreateMessage_EndedRoom(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -408,7 +389,7 @@ func TestService_CreateMessage_EndedRoom(t *testing.T) {
 // TestService_CreateSystemMessage_EndedRoom (issue #22 fix) verifies
 // the system-message path also distinguishes ended from missing.
 func TestService_CreateSystemMessage_EndedRoom(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "messages")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)

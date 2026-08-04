@@ -13,9 +13,10 @@ import (
 // (ADR-0014) — see auth.Issue + handler.resolveUserID for the
 // generation side.
 type User struct {
-	ID        string
-	Phone     string
-	CreatedAt sql.NullTime
+	ID          string
+	Phone       string
+	DisplayName string
+	CreatedAt   sql.NullTime
 }
 
 type AuthToken struct {

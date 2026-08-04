@@ -31,10 +31,10 @@ jobs:
       LOG_LEVEL: info
       PORT: "8080"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: "1.22"
           cache: true
@@ -93,16 +93,21 @@ jobs:
       - name: go build
         run: go build ./...
 
-      - name: go test (unit + integration, with -p 1 to serialize)
-        # -p 1 forces serial test execution because the rooms /
-        # messages / participants integration tests share the same
-        # `fireside_test` DB and TRUNCATE concurrently. -count=1
-        # disables test caching. -race runs the data race detector.
+      - name: go test (unit + integration, parallel — per-package DB isolation)
+        # Sprint 1 tech-debt fix (issue #16 L-2): each integration
+        # suite uses its own database (fireside_test_rooms,
+        # fireside_test_messages, fireside_test_participants). The
+        # per-package DBs are provisioned automatically by
+        # internal/testutil via pg_dump + psql through the postgres
+        # service. Because the suites no longer share a DB, the
+        # three integration suites can run in parallel under the
+        # default `go test ./...` parallelism. -count=1 disables
+        # test caching. -race runs the data race detector.
         env:
           FIRESIDE_TEST_DSN: postgres://fireside:devpassword@localhost:5432/fireside_test?sslmode=disable
-        run: go test -race -count=1 -p 1 ./...
+        run: go test -race -count=1 ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.0.0  # .golangci.yml uses v2 schema

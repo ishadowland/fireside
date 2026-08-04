@@ -13,37 +13,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // registers "pgx" database/sql driver
 
 	"github.com/ishadowland/fireside/internal/store"
+
+	"github.com/ishadowland/fireside/internal/testutil"
 )
-
-const testDSNEnv = "FIRESIDE_TEST_DSN"
-
-// testDSN returns the test DSN from env. Empty if not set.
-func testDSN() string {
-	return os.Getenv(testDSNEnv)
-}
-
-// openTestDB opens the test DB or skips the test if DSN unset.
-func openTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-	dsn := testDSN()
-	if dsn == "" {
-		t.Skipf("skipping: %s not set", testDSNEnv)
-	}
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
-	}
-	if err := db.PingContext(context.Background()); err != nil {
-		t.Fatalf("db ping: %v", err)
-	}
-	return db
-}
 
 // truncate clears test data. CASCADE handles FK dependencies. We do NOT
 // touch schema_migrations — migrations are applied out-of-band.
@@ -66,7 +43,7 @@ func newTestService(t *testing.T, db *sql.DB) (*Service, *store.Queries) {
 }
 
 func TestService_CreateRoom_OK(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "rooms")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, q := newTestService(t, db)
@@ -122,7 +99,7 @@ func TestService_CreateRoom_OK(t *testing.T) {
 }
 
 func TestService_CreateRoom_EmptyName(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "rooms")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -137,7 +114,7 @@ func TestService_CreateRoom_EmptyName(t *testing.T) {
 }
 
 func TestService_CreateRoom_MaxParticipantsOutOfRange(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "rooms")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -152,7 +129,7 @@ func TestService_CreateRoom_MaxParticipantsOutOfRange(t *testing.T) {
 }
 
 func TestService_GetRoom_NotFound(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "rooms")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -164,7 +141,7 @@ func TestService_GetRoom_NotFound(t *testing.T) {
 }
 
 func TestService_EndRoom_NotHost(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "rooms")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)
@@ -190,7 +167,7 @@ func TestService_EndRoom_NotHost(t *testing.T) {
 }
 
 func TestService_EndRoom_OK(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "rooms")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, q := newTestService(t, db)
@@ -229,7 +206,7 @@ func TestService_EndRoom_OK(t *testing.T) {
 }
 
 func TestService_ListActive(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "rooms")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	svc, _ := newTestService(t, db)

@@ -31,15 +31,17 @@ func TestMain(m *testing.M) {
 
 // fakeStore is an in-memory auth.UserStore so handler tests don't need a DB.
 type fakeStore struct {
-	mu     sync.Mutex
-	users  map[string]store.User
-	tokens map[string]store.AuthToken // jti string -> row
+	mu            sync.Mutex
+	users         map[string]store.User
+	tokens        map[string]store.AuthToken // jti string -> row (access)
+	refreshTokens map[string]store.InsertRefreshTokenParams
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		users:  make(map[string]store.User),
-		tokens: make(map[string]store.AuthToken),
+		users:         make(map[string]store.User),
+		tokens:        make(map[string]store.AuthToken),
+		refreshTokens: make(map[string]store.InsertRefreshTokenParams),
 	}
 }
 
@@ -100,6 +102,29 @@ func newTestEngine(t *testing.T) *gin.Engine {
 		Tokens:         fs,
 	})
 	return r
+}
+
+// newTestEngineWithStore mirrors newTestEngine but also returns the
+// fakeStore so a test can pre-seed it (refresh tokens, etc.).
+func newTestEngineWithStore(t *testing.T) (*gin.Engine, *fakeStore) {
+	t.Helper()
+	fs := newFakeStore()
+	// Defensive: in case newFakeStore forgets to initialize the
+	// refresh_tokens map, do it here so test seed code can
+	// directly assign to it.
+	fs.mu.Lock()
+	if fs.refreshTokens == nil {
+		fs.refreshTokens = map[string]store.InsertRefreshTokenParams{}
+	}
+	fs.mu.Unlock()
+	r := gin.New()
+	Mount(r, Config{
+		JWTSecret:      testSecret,
+		AccessTokenTTL: 15 * time.Minute,
+		Users:          fs,
+		Tokens:         fs,
+	})
+	return r, fs
 }
 
 func postJSON(t *testing.T, r *gin.Engine, path, body string) *httptest.ResponseRecorder {
@@ -379,4 +404,124 @@ func userIDFromToken(t *testing.T, tokenStr string) string {
 		t.Fatalf("validate test token: %v", err)
 	}
 	return claims.UserID
+}
+
+
+// Refresh-token stubs (issue #9 WP-7.9). The fakeStore is a
+// pass-through: it doesn't simulate replay defense, just stores
+// what the handler writes.
+func (f *fakeStore) InsertRefreshToken(_ context.Context, arg store.InsertRefreshTokenParams) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refreshTokens[arg.JTI] = arg
+	return 1, nil
+}
+
+func (f *fakeStore) GetRefreshToken(_ context.Context, jti string) (store.RefreshToken, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row, ok := f.refreshTokens[jti]
+	if !ok {
+		return store.RefreshToken{}, sql.ErrNoRows
+	}
+	return store.RefreshToken{
+		JTI:         row.JTI,
+		UserID:      row.UserID,
+		FamilyID:    row.FamilyID,
+		ExpiresAt:   row.ExpiresAt,
+		ReplacedByJTI: sql.NullString{String: row.JTI, Valid: false}, // simplified
+	}, nil
+}
+
+func (f *fakeStore) MarkRefreshTokenReplaced(_ context.Context, jti, _ string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row, ok := f.refreshTokens[jti]
+	if !ok {
+		return 0, nil
+	}
+	// Simplified: just pretend the replacement succeeded. The
+	// real implementation would set replaced_by_jti here.
+	_ = row
+	return 1, nil
+}
+
+func (f *fakeStore) DeleteRefreshToken(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (f *fakeStore) DeleteRefreshFamily(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+
+func TestRefreshHandler_RejectsMissingToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	hr := newTestEngine(t)
+	w := postJSON(t, hr, "/v1/auth/refresh", `{}`)
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestRefreshHandler_RejectsUnknownToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	hr := newTestEngine(t)
+	w := postJSON(t, hr, "/v1/auth/refresh", `{"refresh_token":"unknown"}`)
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestRefreshHandler_RotatesToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	hr, fs := newTestEngineWithStore(t)
+	userID := "01HREFRESH0000000000000000XX"
+	familyID := "01HREFFAMILY00000000000000"
+	jti := "01HREFRESHTOKEN00000000000AA"
+	fs.refreshTokens[jti] = store.InsertRefreshTokenParams{
+		JTI:       jti,
+		UserID:    userID,
+		FamilyID:  familyID,
+		ExpiresAt: sql.NullTime{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
+	}
+	w := postJSON(t, hr, "/v1/auth/refresh", `{"refresh_token":"`+jti+`"}`)
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Token == "" {
+		t.Error("access token empty")
+	}
+	if body.RefreshToken == "" || body.RefreshToken == jti {
+		t.Errorf("refresh token not rotated: got %q", body.RefreshToken)
+	}
+	// The new refresh token should be inserted.
+	if _, ok := fs.refreshTokens[body.RefreshToken]; !ok {
+		t.Error("new refresh token not in store")
+	}
+}
+
+func TestRefreshHandler_RejectsExpiredToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	hr, fs := newTestEngineWithStore(t)
+	userID := "01HREFRESH0000000000000000XX"
+	jti := "01HEXPIREDREFRESH00000000000"
+	fs.refreshTokens[jti] = store.InsertRefreshTokenParams{
+		JTI:       jti,
+		UserID:    userID,
+		FamilyID:  jti,
+		ExpiresAt: sql.NullTime{Time: time.Now().Add(-1 * time.Hour), Valid: true},
+	}
+	w := postJSON(t, hr, "/v1/auth/refresh", `{"refresh_token":"`+jti+`"}`)
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
 }

@@ -89,3 +89,19 @@ func (q *Queries) GetTokenByJTI(ctx context.Context, jti uuid.UUID) (AuthToken, 
 	err := row.Scan(&i.Jti, &i.UserID, &i.ExpiresAt, &i.CreatedAt)
 	return i, err
 }
+
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, phone, display_name, created_at
+FROM users
+WHERE id = $1
+`
+
+// GetUserByID fetches the user row by primary key. Used by
+// internal/users (PATCH /v1/users/me) to materialize the public
+// user view.
+func (q *Queries) GetUserByID(ctx context.Context, id string) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByID, id)
+	var u User
+	err := row.Scan(&u.ID, &u.Phone, &u.DisplayName, &u.CreatedAt)
+	return u, err
+}

@@ -15,6 +15,12 @@ import (
 type Querier interface {
 	// Sprint 0/1-1/1-2/1-3 (users + auth_tokens)
 	GetUserByPhone(ctx context.Context, phone string) (User, error)
+	GetUserByID(ctx context.Context, id string) (User, error)
+	InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) (int64, error)
+	GetRefreshToken(ctx context.Context, jti string) (RefreshToken, error)
+	MarkRefreshTokenReplaced(ctx context.Context, jti, replacedBy string) (int64, error)
+	DeleteRefreshToken(ctx context.Context, jti string) (int64, error)
+	DeleteRefreshFamily(ctx context.Context, familyID string) (int64, error)
 	InsertUser(ctx context.Context, arg InsertUserParams) (User, error)
 	InsertToken(ctx context.Context, arg InsertTokenParams) (AuthToken, error)
 	DeleteExpiredTokens(ctx context.Context) (int64, error)

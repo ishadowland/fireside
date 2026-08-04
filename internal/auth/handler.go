@@ -31,6 +31,14 @@ type UserStore interface {
 // *store.Queries satisfies it directly.
 type TokenStore interface {
 	InsertToken(ctx context.Context, arg store.InsertTokenParams) (store.AuthToken, error)
+
+	// Refresh-token operations (issue #9 WP-7.9). *store.Queries
+	// satisfies these directly via the refresh_tokens.go file.
+	InsertRefreshToken(ctx context.Context, arg store.InsertRefreshTokenParams) (int64, error)
+	GetRefreshToken(ctx context.Context, jti string) (store.RefreshToken, error)
+	MarkRefreshTokenReplaced(ctx context.Context, jti, replacedBy string) (int64, error)
+	DeleteRefreshToken(ctx context.Context, jti string) (int64, error)
+	DeleteRefreshFamily(ctx context.Context, familyID string) (int64, error)
 }
 
 // LoginRequest is the JSON body of POST /v1/auth/login.
@@ -41,8 +49,9 @@ type LoginRequest struct {
 
 // LoginResponse is the 200 body.
 type LoginResponse struct {
-	Token     string `json:"token"`
-	ExpiresIn int    `json:"expires_in"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	ExpiresIn    int    `json:"expires_in"`
 }
 
 // StubCode is the default SMS code accepted when Config.StubCode is empty.
@@ -117,10 +126,22 @@ func LoginHandler(cfg Config) gin.HandlerFunc {
 			}
 		}
 
-		c.JSON(http.StatusOK, LoginResponse{
+		resp := LoginResponse{
 			Token:     token,
 			ExpiresIn: int(cfg.AccessTokenTTL.Seconds()),
-		})
+		}
+		// Issue a refresh token alongside the access token (issue #9
+		// WP-7.9). Errors are non-fatal — the access token alone is
+		// still usable; the failure is logged for observability.
+		if cfg.Tokens != nil {
+			rt, rtErr := IssueRefreshToken(c.Request.Context(), cfg.Tokens, userID)
+			if rtErr != nil {
+				slog.Error("auth: failed to issue refresh token", "err", rtErr, "user_id", userID)
+			} else {
+				resp.RefreshToken = rt
+			}
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 

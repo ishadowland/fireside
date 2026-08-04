@@ -11,7 +11,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 
@@ -20,27 +19,9 @@ import (
 	"github.com/ishadowland/fireside/internal/messages"
 	"github.com/ishadowland/fireside/internal/rooms"
 	"github.com/ishadowland/fireside/internal/store"
+
+	"github.com/ishadowland/fireside/internal/testutil"
 )
-
-const testDSNEnv = "FIRESIDE_TEST_DSN"
-
-func testDSN() string { return os.Getenv(testDSNEnv) }
-
-func openTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-	dsn := testDSN()
-	if dsn == "" {
-		t.Skipf("skipping: %s not set", testDSNEnv)
-	}
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
-	}
-	if err := db.PingContext(context.Background()); err != nil {
-		t.Fatalf("db ping: %v", err)
-	}
-	return db
-}
 
 func truncate(t *testing.T, db *sql.DB) {
 	t.Helper()
@@ -83,7 +64,7 @@ func newTestService(t *testing.T, db *sql.DB) (*Service, *rooms.Service, *messag
 }
 
 func TestService_JoinRoom_OK(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -120,7 +101,7 @@ func TestService_JoinRoom_OK(t *testing.T) {
 }
 
 func TestService_JoinRoom_RoomNotFound(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -133,7 +114,7 @@ func TestService_JoinRoom_RoomNotFound(t *testing.T) {
 }
 
 func TestService_JoinRoom_EndedRoom(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -154,7 +135,7 @@ func TestService_JoinRoom_EndedRoom(t *testing.T) {
 }
 
 func TestService_JoinRoom_AlreadyOnStage(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -174,7 +155,7 @@ func TestService_JoinRoom_AlreadyOnStage(t *testing.T) {
 }
 
 func TestService_JoinRoom_RoomFull(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -200,7 +181,7 @@ func TestService_JoinRoom_RoomFull(t *testing.T) {
 }
 
 func TestService_LeaveRoom_OK(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -237,7 +218,7 @@ func TestService_LeaveRoom_OK(t *testing.T) {
 }
 
 func TestService_LeaveRoom_NotOnStage(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -254,7 +235,7 @@ func TestService_LeaveRoom_NotOnStage(t *testing.T) {
 }
 
 func TestService_LeaveRoom_RejoinOK(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -277,7 +258,7 @@ func TestService_LeaveRoom_RejoinOK(t *testing.T) {
 }
 
 func TestService_ListOnStageByRoom(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -314,7 +295,7 @@ func TestService_ListOnStageByRoom(t *testing.T) {
 }
 
 func TestService_GetOnStageParticipant(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -337,7 +318,7 @@ func TestService_GetOnStageParticipant(t *testing.T) {
 }
 
 func TestService_GetOnStageParticipant_NotFound(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)
@@ -360,7 +341,7 @@ func TestService_GetOnStageParticipant_NotFound(t *testing.T) {
 // Sprint 1: row lock on rooms.id (in a tx) serializes the count + insert.
 // If this test ever fails, the tx-wrapped JoinRoom fix is broken.
 func TestService_JoinRoom_ConcurrentCapacity(t *testing.T) {
-	db := openTestDB(t)
+	db := testutil.OpenTestDB(t, "participants")
 	defer func() { _ = db.Close() }()
 	truncate(t, db)
 	ps, _, _ := newTestService(t, db)

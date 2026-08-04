@@ -16,7 +16,13 @@ type Config struct {
 	Tokens         TokenStore    // required; persists jti for replay defense (Sprint 1-2)
 }
 
-// Mount registers POST /v1/auth/login onto r.
+// Mount registers the auth REST surface:
+//   POST /v1/auth/login    — issue access token (and refresh token)
+//   POST /v1/auth/refresh  — rotate refresh token + issue new access token
 func Mount(r *gin.Engine, cfg Config) {
 	r.POST("/v1/auth/login", LoginHandler(cfg))
+	if cfg.Tokens != nil {
+		// Refresh handler depends on the token store (issue #9 WP-7.9).
+		r.POST("/v1/auth/refresh", RefreshHandler(cfg))
+	}
 }
