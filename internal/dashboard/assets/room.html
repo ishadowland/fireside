@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fireside — 房间</title>
+  <link rel="stylesheet" href="/dashboard/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <h1 id="room-title">房间</h1>
+      <span class="badge" id="room-status">…</span>
+      <div class="actions">
+        <a href="/dashboard/rooms">返回大厅</a>
+        <span class="dot">·</span>
+        <code id="me-id">…</code>
+      </div>
+    </header>
+
+    <section class="chat-layout">
+      <aside class="card participants">
+        <h2>在场</h2>
+        <ul id="participants-list"><li class="empty">…</li></ul>
+      </aside>
+
+      <section class="card chat">
+        <div class="chat-history" id="messages">
+          <div class="empty">载入中…</div>
+        </div>
+        <div class="chat-input">
+          <input id="msg-input" type="text" placeholder="输入消息…" maxlength="2000" disabled />
+          <button id="send-btn" disabled>发送</button>
+        </div>
+        <div class="row chat-actions">
+          <button id="end-btn" class="danger" disabled>结束房间</button>
+          <span class="status" id="ws-status">未连接</span>
+        </div>
+      </section>
+    </section>
+
+    <section class="card">
+      <h2>事件日志</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script src="/dashboard/static/lib.js"></script>
+  <script src="/dashboard/static/room.js"></script>
+</body>
+</html>

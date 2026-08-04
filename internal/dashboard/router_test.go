@@ -98,3 +98,80 @@ func TestConfigEndpoint(t *testing.T) {
 		t.Errorf("stub_code = %q, want 1234", body.StubCode)
 	}
 }
+
+func TestRoomsPageServedOnLoopback(t *testing.T) {
+	r := newTestRouter()
+	w := doLoopback(r, http.MethodGet, "/dashboard/rooms")
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /dashboard/rooms = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content type = %q, want text/html", ct)
+	}
+	if !strings.Contains(w.Body.String(), "Fireside") {
+		t.Error("rooms page missing brand title")
+	}
+	if !strings.Contains(w.Body.String(), "/dashboard/static/rooms.js") {
+		t.Error("rooms page missing rooms.js script reference")
+	}
+}
+
+func TestRoomPageServedOnLoopback(t *testing.T) {
+	r := newTestRouter()
+	w := doLoopback(r, http.MethodGet, "/dashboard/rooms/01ABC")
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /dashboard/rooms/01ABC = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content type = %q, want text/html", ct)
+	}
+	if !strings.Contains(w.Body.String(), "/dashboard/static/room.js") {
+		t.Error("room page missing room.js script reference")
+	}
+	if !strings.Contains(w.Body.String(), "/dashboard/static/lib.js") {
+		t.Error("room page missing lib.js script reference")
+	}
+}
+
+func TestWP8StaticAssetsOnLoopback(t *testing.T) {
+	r := newTestRouter()
+	for _, p := range []string{
+		"/dashboard/static/lib.js",
+		"/dashboard/static/rooms.js",
+		"/dashboard/static/room.js",
+	} {
+		w := doLoopback(r, http.MethodGet, p)
+		if w.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200", p, w.Code)
+		}
+	}
+}
+
+func TestWP8RoomPageBlockedForRemote(t *testing.T) {
+	r := newTestRouter()
+	for _, p := range []string{
+		"/dashboard/rooms",
+		"/dashboard/rooms/01ABC",
+		"/dashboard/static/rooms.js",
+	} {
+		w := doRemote(r, http.MethodGet, p)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("remote GET %s = %d, want 404", p, w.Code)
+		}
+	}
+}
+
+func TestLibJSExposesFiresideGlobal(t *testing.T) {
+	r := newTestRouter()
+	w := doLoopback(r, http.MethodGet, "/dashboard/static/lib.js")
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET lib.js = %d, want 200", w.Code)
+	}
+	// Smoke check: ensure the file declares the Fireside helper module.
+	required := []string{"Fireside", "openWS", "login", "jwtFetch", "escapeHtml"}
+	for _, kw := range required {
+		if !strings.Contains(w.Body.String(), kw) {
+			t.Errorf("lib.js missing helper %q", kw)
+		}
+	}
+}

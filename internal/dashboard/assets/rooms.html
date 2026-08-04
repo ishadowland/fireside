@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fireside — 大厅</title>
+  <link rel="stylesheet" href="/dashboard/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <h1>Fireside — 大厅</h1>
+      <span class="badge">local-only · 自动 stub 登录</span>
+      <div class="actions">
+        <a href="/dashboard/">首页</a>
+        <span class="dot">·</span>
+        <code id="me-id">…</code>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>1. 创建房间</h2>
+      <div class="row">
+        <input id="new-name" type="text" placeholder="房间名" maxlength="100" />
+        <input id="new-max" type="number" min="1" max="50" value="8" />
+        <button id="create-btn">创建</button>
+      </div>
+      <div class="status" id="create-status"></div>
+    </section>
+
+    <section class="card">
+      <h2>2. 活跃房间</h2>
+      <div class="row">
+        <button id="refresh-btn">刷新列表</button>
+        <span class="status" id="refresh-status"></span>
+      </div>
+      <table id="rooms-table">
+        <thead>
+          <tr><th>房间名</th><th>状态</th><th>host</th><th>max</th><th>创建</th><th></th></tr>
+        </thead>
+        <tbody id="rooms-tbody">
+          <tr><td colspan="6" class="empty">加载中…</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>3. 事件日志</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script src="/dashboard/static/lib.js"></script>
+  <script src="/dashboard/static/rooms.js"></script>
+</body>
+</html>

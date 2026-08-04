@@ -28,6 +28,9 @@ func Mount(r *gin.Engine, cfg Config) {
 	{
 		g.GET("", serveAsset("assets/index.html"))
 		g.GET("/", serveAsset("assets/index.html"))
+		// WP-8: lobby + chat pages.
+		g.GET("/rooms", serveAsset("assets/rooms.html"))
+		g.GET("/rooms/:id", serveAsset("assets/room.html"))
 		g.GET("/static/:file", serveAssetDir())
 	}
 
