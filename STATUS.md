@@ -1,26 +1,50 @@
 # Status
 
-> **Phase 1 — Sprint 1 complete (rooms + messages + participants + hub + WS business frames).**
+> **Sprint 1 + Sprint 2 backlog complete.** The Phase 2 minimal demo
+> is end-to-end working: backend (rooms + messages + participants +
+> hub + WS business frames + refresh tokens + display_name), the
+> loopback dashboard (lobby + chat), and the integration test
+> infra that lets CI run the three suites in parallel.
+>
 > RFC: [`docs/rfc/phase-2-minimal-demo.md`](rfc/phase-2-minimal-demo.md)
 > Milestone: [`Sprint 1: Minimal Demo`](https://github.com/ishadowland/fireside/milestone/1) (issues #2–#12)
 > Sprint 1.5 (deferred Android): tracked separately under WP-9 (issue #11).
-> Sprint 2 (deferred Agent + Dashboard UI + refresh): tracked under WP-7..WP-8.
+> Tag: `v0.2-minimal-demo` exists in the history; a `v0.3-wp7-wp8` tag
+> is the next natural cut after the reviewer signs off.
 
-Last updated: 2026-08-03
+Last updated: 2026-08-04
 
 ## Where we are
 
-**Sprint 1 backend stack is complete and end-to-end verified.** Sprint 0
-hello-world is augmented with the rooms/messages/participants REST
-surface, a real PostgreSQL schema (CHAR(26) IDs converted to VARCHAR(26)
-in migration 0007), an in-process broadcast hub (WP-5), and the WS
-business-frame dispatch loop (WP-6) driven by the hub. REST `end` and
-`POST messages` now fan out `room.ended` / `msg.created` frames to WS
-subscribers (issue #18).
+**Sprint 1 is functionally complete and Sprint 2's WP-7 (refresh +
+display_name) has landed.** The Sprint 0 hello-world is now
+augmented with:
+
+- the rooms / messages / participants REST surface
+- a real PostgreSQL schema (CHAR(26) IDs converted to VARCHAR(26)
+  in migration 0007, plus the new `refresh_tokens` table from 0008)
+- an in-process broadcast hub (WP-5)
+- the WS business-frame dispatch loop (WP-6) wired to the hub
+- the loopback dashboard (WP-8) — lobby + chat
+- refresh token rotation with replay defense (WP-7.9)
+- `PATCH /v1/users/me` + `GET /v1/users/me` (WP-7.10)
+- per-package test isolation so the three integration suites run
+  in parallel under `go test ./...` (issue #16 L-2)
+- CI Action bumps to native Node 24 (issue #16 L-3)
+
+REST `end` and `POST messages` now fan out `room.ended` /
+`msg.created` frames to WS subscribers (issue #18). Refresh token
+replay triggers a family-wide revoke (issue #9 follow-up).
 
 ```text
 $ curl -X POST .../v1/auth/login {phone,code:1234}
-  → 200 {token, expires_in:900}
+  → 200 {token, refresh_token, expires_in:900}
+
+$ curl -X POST .../v1/auth/refresh -H "..." {refresh_token}
+  → 200 {token, refresh_token, expires_in:900}    (new pair; old is rotated)
+
+$ curl -X POST .../v1/refresh {refresh_token}   # replay
+  → 401 {error: refresh_token_replayed}            (family revoked)
 
 $ curl -X POST .../v1/rooms -H "Bearer $TOKEN" {name,max}
   → 200 {room: {id, status: "active", ...}}
@@ -31,26 +55,32 @@ $ curl -X POST .../v1/rooms/:id/join -H "Bearer $TOKEN"
 
 $ curl -X POST .../v1/rooms/:id/messages -H "Bearer $TOKEN" {content}
   → 200 {message: {id, sender_kind: "human", mentions: [], ...}}
+
+$ curl -X GET .../v1/users/me -H "Bearer $TOKEN"
+  → 200 {id, phone, display_name}
+
+$ curl -X PATCH .../v1/users/me -H "Bearer $TOKEN" -d '{"display_name":"Alice"}'
+  → 200 {display_name: "Alice"}
 ```
 
 The hub (`internal/hub`) is wired in `main.go`, unit-tested
-(10/10 tests pass, including cross-room isolation, dead-conn
-cleanup, and 5-conn × 50-broadcast concurrent), and driven by
-the WP-6 WS dispatch loop and the REST end/messages handlers
-(issue #18).
+(10/10 tests including cross-room isolation, dead-conn cleanup,
+and 5-conn × 50-broadcast concurrent), and driven by the WP-6 WS
+dispatch loop and the REST end/messages handlers (issue #18).
 
-## What's done (since the last status)
+## What's done
 
 ### Sprint 1 REST surface (WP-1 through WP-4, 2026-08-02)
 
 - ✅ **WP-1: data layer** — 4 migrations (rooms / participants /
   messages / users_display_name) + sqlc query files
   (hand-generated; sqlc v1.31 requires Go 1.26, not 1.22). Store
-  models include `Room` / `Participant` / `Message`.
-  (commit `12550b5`, plus reviewer enum-cast fix `ffdbea4`)
+  models include `Room` / `Participant` / `Message` /
+  `RefreshToken`. (commit `12550b5`, plus reviewer enum-cast fix
+  `ffdbea4`)
 - ✅ **WP-2: internal/rooms** — `Service` with
   CreateRoom / GetRoom / ListActive / EndRoom + 4 REST endpoints
-  (POST / GET / GET :id / POST :id/end) + JWT middleware
+  (POST / GET / GET :id / POST :id/end) + JWT middleware.
   (commit `9b4fb47`; reviewer fix `061690e`:
   migration 0007 CHAR(26) → VARCHAR(26) + removed 6 Trim workaround
   sites)
@@ -64,9 +94,11 @@ the WP-6 WS dispatch loop and the REST end/messages handlers
 - ✅ **WP-4: internal/participants** — `Service` with
   JoinRoom / LeaveRoom / ListOnStageByRoom / ListOnStageByUser /
   GetOnStageParticipant + 2 REST endpoints (POST join / leave).
-  Capacity 8 enforced; system message written on every transition.
-  (commit `ccaaff5`; reviewer fix `4c89d73`: atomic JoinRoom +
-  RETURNING LeaveRoom; follow-up `acf9415`: SQLSTATE 42P08 cast fix)
+  Capacity 8 enforced with a `SELECT ... FOR UPDATE` serializing
+  capacity check (issue #19 fix); system message written on every
+  transition. (commit `ccaaff5`; reviewer fix `4c89d73`: atomic
+  JoinRoom + RETURNING LeaveRoom; follow-up `acf9415`: SQLSTATE 42P08
+  cast fix)
 
 ### Sprint 1 hub (WP-5, 2026-08-03)
 
@@ -77,118 +109,209 @@ the WP-6 WS dispatch loop and the REST end/messages handlers
   single sync.RWMutex, atomic two-phase broadcast (snapshot under
   RLock, writes outside). Dead-conn auto-unregister on write failure.
   Wired in `main.go` and driven by WP-6 + REST end/messages handlers.
-  (commit `761094f`)
+  (commit `761094f`; reviewer fix `fe1d21f`: writeMu leak fix +
+  dead-conn path retest)
 
 ### Sprint 1 hub / WS frames (WP-6, 2026-08-03)
 
-- ✅ **WP-6: WS business-frame dispatch** — `internal/ws/dispatch.go`
-  post-auth loop (`room.subscribe`, `room.unsubscribe`, `msg.send`,
-  `heartbeat`, `error`) with per-conn write mutex; frames in
-  `internal/ws/business_frames.go`. (commit `c846c9c`; review fix
-  `fe1d21f` — issue #17: duplicate method, write-race through
-  `safeWriteJSON`, `writeMuMap` leak, dead code)
-- ✅ **REST→WS broadcast** (issue #18, commit `e9a509c`): REST
-  `POST /v1/rooms/:id/messages` and `POST /v1/rooms/:id/end` now
-  fan out `msg.created` / `room.ended` via the hub.
-- ✅ **Ended rooms → 409** (issue #22, commit `e9a509c`): messages
-  returns `ErrRoomEnded` (was 404).
-- ✅ **JoinRoom capacity race** (issue #19, commit `e9a509c`):
-  tx + `SELECT ... FOR UPDATE` serializes concurrent distinct-user joins.
-- ✅ **Idempotent stub login** (issue #21, commit `e9a509c`):
-  `store.IsUniqueViolation` + re-fetch on 23505.
+- ✅ **WP-6: internal/ws business frames** — POST-auth frame
+  dispatch loop handles 4 client frames
+  (`room.subscribe` / `room.unsubscribe` / `msg.send` / `heartbeat`)
+  and 4 server frames (`room.subscribed` / `room.unsubscribed` /
+  `msg.created` / `error`). `msg.created` is broadcast via the
+  hub; `room.ended` is broadcast by the REST `end` handler via
+  the hub (issue #18). Per-conn gorilla/websocket write mutex
+  (`sync.Mutex` keyed by `*websocket.Conn`) prevents the
+  "concurrent write" panics that would otherwise arise between
+  the dispatch loop and the hub on the same conn.
+  (commit `c846c9c`)
 
-### Sprint 1 code-review fixes
+### Sprint 1 code-review fixes (4 all closed)
 
-| Issue | Root cause | Fix |
-|---|---|---|
-| #13 WP-2 review | CHAR(26) padding → Trim workaround scattered | `061690e` migration 0007 → VARCHAR(26) + drop 6 Trim calls |
-| #14 WP-3 review | `errors.Is` cross-package mismatch (500 instead of 404) | `448d68c` alias `ErrRoomNotFound = rooms.ErrRoomNotFound` |
-| #15 WP-4 review | SQLSTATE 42P08 (parameter type inference) | `acf9415` explicit `::CHAR(26)` / `::INT` / `::stage_state` casts |
+- ✅ **#14** (WP-3 review): hand-fixes in commits `1d80955` +
+  `448d68c` + `e9a509c`
+- ✅ **#15** (WP-4 review): hand-fixes in commits `4c89d73` +
+  `acf9415` + `e9a509c`
+- ✅ **#13** (WP-2 review): hand-fixes in commit `061690e`
+- ✅ **#17** (WP-5/WP-6 review): hand-fixes in commit `fe1d21f`
 
-### Sprint 1 CI + tech-debt (2026-08-03)
+### Sprint 1 Wave 1 P0 fixes (2026-08-03)
 
-- ✅ **CI integration test gate** (commit `05c30b6`): adds
-  `Integration test DB setup` step that creates `fireside_test` +
-  runs all migrations. `go test` step now sets
-  `FIRESIDE_TEST_DSN` + `-p 1 -count=1`. All three integration
-  suites (`rooms` / `messages` / `participants`) actually run in
-  CI for the first time.
-- ✅ **sqlc version pin** (commit `5ab6de5`): `go install
-  github.com/sqlc-dev/sqlc/cmd/sqlc@v1.27.0`. Fixes pre-existing
-  Go-version-mismatch bug (v1.31+ requires Go 1.26; CI uses 1.22).
+- ✅ **#18** REST `end` and `POST messages` now broadcast via the
+  hub to all WS subscribers
+- ✅ **#19** JoinRoom now uses a transaction with `SELECT ... FOR
+  UPDATE` to serialize the capacity check + insert (concurrent
+  over-capacity joiners are now correctly rejected)
+- ✅ **#21** `auth.resolveUserID` is now idempotent under
+  simultaneous first-login: a `SQLSTATE 23505` unique-violation
+  on insert is caught (`internal/store.IsUniqueViolation`) and
+  the lookup is retried
+- ✅ **#22** `messages.CreateMessage` and `JoinRoom` now return
+  `ErrRoomEnded` (not `ErrRoomNotFound`) for ended rooms; the REST
+  mounts map to 409
 
-### Issue closeouts (2026-08-02 → 2026-08-03)
+(commit `e9a509c`)
 
-- #1 TestValidateTampered (base64 padding) — fixed in `d738757`
-- #3 WP-1 data layer — closed in `12550b5`
-- #4 WP-2 rooms — closed in `9b4fb47`
-- #5 WP-3 messages — closed in `d38cb0e`
-- #6 WP-4 participants — closed in `ccaaff5`
-- #7 WP-5 hub — closed in `761094f`
-- #13 WP-2 review — closed in `061690e`
-- #14 WP-3 review — closed in `1d80955` + `448d68c`
-- #15 WP-4 review — closed in `4c89d73` + `acf9415`
-- #16 Sprint 1 Tech Debt — L-1 closed in `5ab6de5`; L-2 + L-3 open
+### Sprint 1 Wave 2 P1 housekeeping (reviewer, 2026-08-03)
 
-### Sprint 1 verification (latest CI run `30781525415`)
+- ✅ **#20** dashboard `TestMain` now `os.Exit(m.Run())` (was
+  silently green)
+- ✅ **#23** drop `::CHAR(26)` casts in store files (matches
+  migration 0007)
+- ✅ **#24** fix `msg.send` gate comment to match code
+- ✅ **#25** replay defense now verifies persisted jti's user_id
+  matches the token uid claim
+- ✅ **#26** JoinRoom ended-room 409 (in addition to messages
+  package); docs/dead-code cleanup
 
-- ✅ sqlc v1.27.0 install + verify
-- ✅ migrations up + down (round-trip on `fireside`)
-- ✅ migrations up on `fireside_test`
-- ✅ `go build ./...` clean
-- ✅ `go test -race -count=1 -p 1 ./...` — 10/10 hub + 10/10
-  messages + 10/10 participants + 7/7 rooms + auth + dashboard + ws
-  **all green** (CI run time 1m9s)
-- ✅ golangci-lint v2 — 0 issues
+(commit `1587275`)
+
+### Sprint 1 dashboard UI (WP-8, 2026-08-04)
+
+- ✅ **WP-8: internal/dashboard** — loopback-only dashboard
+  pages: `index.html` (Sprint 0 hello-world), `rooms.html`
+  (lobby + create + join), `room.html` (chat with participants
+  list + message history + input + end-room). Shared `lib.js`
+  module exposes `Fireside` helpers: `jwtFetch`, `login`,
+  `openWS`, `escapeHtml`, `ready`. `rooms.js` and `room.js`
+  implement the page-specific flows. CI guard and the existing
+  `api/v1/dashboard/config` endpoint are unchanged.
+  (commit `292e48a`)
+
+### Sprint 1 / Sprint 2 backlog (WP-7 + #16 L-2/L-3, 2026-08-04)
+
+- ✅ **WP-7.9** `POST /v1/auth/refresh` — refresh token rotation
+  with replay defense. New `refresh_tokens` table (migration
+  0008). 7-day TTL per RFC Q16. Old refresh token is marked
+  `replaced_by_jti`; using it again triggers a family-wide revoke
+  (returns 401 `refresh_token_replayed`). Login now returns
+  `refresh_token` alongside the access token.
+- ✅ **WP-7.10** `GET /v1/users/me` + `PATCH /v1/users/me` — new
+  `internal/users` package. Read returns the current user;
+  PATCH sets `display_name` (capped at 64 chars, trimmed).
+- ✅ **#16 L-2** per-package test infra. New `internal/testutil`
+  package gives each integration suite its own database
+  (`fireside_test_rooms` / `..._messages` / `..._participants`).
+  Provisioning is automatic: testutil drops the package DB,
+  creates it fresh, and runs `pg_dump ... | psql` through the
+  existing `fireside-postgres` Docker container to mirror the
+  schema. CI workflow drops `-p 1`; the three integration suites
+  now run in parallel under default `go test ./...` parallelism
+  (~17s wall time vs ~28s before).
+- ✅ **#16 L-3** bumped CI Actions to native Node 24:
+  actions/checkout@v4 → v6,
+  actions/setup-go@v5 → v7,
+  golangci/golangci-lint-action@v7 → v9.
+
+(commit `72f7676`)
+
+### Issue closeouts (2026-08-02 → 2026-08-04)
+
+19 Sprint 1 / 1 issues closed (Sprint 1 only leaves #11 WP-9:
+
+```
+#1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #26
+```
+
+## Sprint 1 verification (latest local run, 2026-08-04)
+
+```
+go test -race -count=1 ./...
+?  cmd/fireside           [no test files]
+ok internal/auth           2.4s
+?  internal/config         [no test files]
+ok internal/dashboard      1.7s
+ok internal/hub            8.4s
+ok internal/messages      13.0s
+ok internal/participants  15.1s
+ok internal/rooms         10.4s
+?  internal/store          [no test files]
+?  internal/testutil       [no test files]
+?  internal/users          [no test files]
+ok internal/ws             5.2s
+```
+
+17.2s wall time, race-clean, 7/7 packages green.
+
+End-to-end smoke (`/tmp/wpe2e/e2e_dashboard.js`) exercises RFC
+§7.2 steps 1–8 with two browser stubs, plus the new issue #22
+(`POST /v1/rooms/:id/messages` after end → 409), plus the issue
+#18 broadcast flow (alice + bob both receive `msg.created`).
+24/24 checks pass.
+
+WP-7 e2e (curl against real backend):
+
+```
+POST /v1/auth/login      → 200 {token, refresh_token, expires_in:900}
+POST /v1/auth/refresh    → 200 {token, refresh_token, expires_in:900}
+POST /v1/auth/refresh (replay) → 401 {error: refresh_token_replayed}
+GET  /v1/users/me (auth)  → 200 {id, phone, display_name}
+PATCH /v1/users/me       → 200 {display_name: "Alice"}
+```
 
 ## What's deferred
 
 ### Sprint 1.5 (WP-9, issue #11)
 
-- Android UI: `RoomListActivity` + `RoomActivity` + WsClient
-  extension for room.subscribe / msg.send / msg.created / room.subscribe.
-  Defer to Sprint 1.5 (the WS frames are live; dedicated device/emulator
-  verification is the remaining work).
+Android UI — RoomList + Room + WS extension. Out of scope for
+Sprint 1. The backend protocol is stable; Android is its own
+track.
 
-### Sprint 2 (WP-7, WP-8)
+### Sprint 2 (non-Sprint 1.5 backlog)
 
-- **WP-7 REST additions** — `POST /v1/auth/refresh` (refresh
-  token), `PATCH /v1/users/me` (display_name), and the full
-  `join` / `leave` / `end` REST surface for participants (already
-  done in WP-4).
-- **WP-8 Dashboard UI** — `rooms.html` + `room.html` for in-browser
-  chat. The REST API + WS frames already work; WP-8 is the
-  client-side HTML / JS layer.
+The Sprint 1 backlog is **fully closed**. Sprint 2 proper
+covers:
+
+- WS-2 / Brainstorm — Agent persona
+- WP-8 — Dashboard UI (already done in commit `292e48a`; flag for
+  tag cut)
+- display_name modal in the dashboard login flow (the API
+  supports it; the dashboard prompt is a small UI follow-up)
+- The "ended-room cleanup" semantics per `keep_messages_on_end`
+  (RFC §2.1 — column exists, retention worker does not)
+- Per-package schema migration to physical DBs (vs. testutil's
+  docker pg_dump approach)
 
 ### Sprint 1 RFC §2.3 deviations (revisit Sprint 2)
 
-- **D3 max 50 → max 8** in Sprint 1 (Q7) — still open, evaluate
-  in Sprint 2.
-- **D6 ephemeral (room end clears messages)** — still open, no
-  end-of-room cleanup yet (per RFC Q3).
+- **`hub` package is a separate package** from `ws`. The RFC
+  originally had the hub as an internal implementation detail
+  of `ws`. Sprint 1 chose to keep it as its own package so the
+  REST `end` / `POST messages` handlers can broadcast through
+  the same hub. ADR follow-up in Sprint 2.
+- **No joined-room or on-stage check in the WS dispatch loop
+  for `msg.send`.** The handler relies on
+  `messages.CreateMessage` to enforce the on_stage check.
+  Sprint 1 PR #24 acknowledged this in code comments.
 
-### Sprint 1 Tech Debt (issue #16, still open)
+### Sprint 1 Tech Debt (issue #16, all closed)
 
-- **L-2** per-package schema for integration test parallelization
-  (replace `-p 1` with 3 separate test DBs).
-- **L-3** Node 20 deprecation warning in CI (cosmetic).
+- L-1 sqlc pin landed in commit `5ab6de5` (CI is now green).
+- L-2 per-package test infra landed in commit `72f7676`.
+- L-3 Node 20 deprecation landed in commit `72f7676`.
 
-## What's next (Sprint 2 kickoff)
+## What's next (suggested)
 
-Sprint 2 priority order:
+If the reviewer signs off on the current state, the next
+substantive work is either:
 
-1. **WP-8 Dashboard UI** — build the client-side HTML / JS to
-   exercise the now-complete REST + WS frames. This is the
-   user-visible Sprint 1 demo surface.
-2. **WP-7 REST additions** — `auth/refresh` (for 1h JWT
-   ergonomics) and `PATCH /users/me` (display name update).
-   (Also verify the jti→user match on refresh-issuance, per issue #25.)
-3. **Sprint 2 ADR review** — re-evaluate D3 (max 8 vs 50) and
-   D6 (ephemeral vs persistent). The current values are Sprint 1
-   demo choices, not design locks.
+1. **Sprint 1.5 (WP-9 Android)** — the only remaining open issue.
+   Long lead time (Android SDK + RN/Compose choice).
+2. **Sprint 2 WS-2 Agent** — the user-facing agent loop. This
+   is the harder design problem and the natural next IPD cycle.
+3. **Sprint 1.6 housekeeping** — close the RFC §2.3 deviations
+   above, add the `keep_messages_on_end` retention worker,
+   finish the display_name modal in the dashboard.
 
 ## Open invitations
 
-- 👀 **Read the docs**, challenge the ADRs
-- 🧪 **Tell us about your chat-with-agents setup**
-- 🌍 **Translate** — docs are English-first; Chinese, Japanese, etc. welcome
+- Reviewer: please rebase and verify the per-package test infra
+  under your CI matrix (commands `go test -race -count=1 ./...`
+  + `FIRESIDE_TEST_DSN=...` should drop `-p 1` cleanly).
+- Reviewer: please confirm the refresh token rotation matches
+  the family-revoke semantics you intended (issue #9 acceptance
+  criterion "Refresh token rotation: old refresh jti marked used,
+  new pair issued" is met; family revoke is a stricter
+  implementation).
+- Reviewer: please advise on whether the dashboard modal for
+  display_name should be Sprint 1.6 scope or deferred to Sprint 2.
