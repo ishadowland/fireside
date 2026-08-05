@@ -113,11 +113,19 @@
     });
   };
 
-  // ---- Server-time-to-ISO ----------------------------------------------
-  LIB.fmtTime = function (epoch) {
-    if (!epoch || !epoch.seconds) return "";
-    const d = new Date(epoch.seconds * 1000);
-    return d.toLocaleTimeString();
+  // ---- Time formatting --------------------------------------------------
+  // Accepts either a protobuf-style {seconds: N} timestamp or an
+  // RFC3339 string (what the REST + WS JSON payloads actually send).
+  LIB.fmtTime = function (t) {
+    if (t == null) return "";
+    if (typeof t === "object" && t.seconds) {
+      return new Date(t.seconds * 1000).toLocaleTimeString();
+    }
+    if (typeof t === "string") {
+      const d = new Date(t);
+      if (!isNaN(d.getTime())) return d.toLocaleTimeString();
+    }
+    return "";
   };
 
   // ---- DOM ready helper --------------------------------------------------

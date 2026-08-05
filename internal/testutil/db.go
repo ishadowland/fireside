@@ -134,7 +134,7 @@ func ensureDatabase(adminDSN, dbName string) error {
 	if err != nil {
 		return fmt.Errorf("open admin: %w", err)
 	}
-	defer admin.Close()
+	defer func() { _ = admin.Close() }()
 	if err := admin.Ping(); err != nil {
 		return fmt.Errorf("ping admin: %w", err)
 	}
@@ -142,13 +142,13 @@ func ensureDatabase(adminDSN, dbName string) error {
 	// re-runs every test, so we want a clean slate. The DROP
 	// must use a separate connection because Postgres won't drop
 	// a DB that has open connections.
+	// Disconnect any clients first. pg_terminate_backend is idempotent
+	// and safe even when no one is connected; if it fails, the DROP
+	// below will fail loudly while the DB is still in use.
 	if _, err := admin.ExecContext(context.Background(),
-		// Disconnect any clients first. The pg_terminate_backend
-		// call is idempotent and safe even when no one is connected.
 		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName),
 	); err != nil {
-		// Best-effort; the DROP below will fail loudly if anything
-		// is still holding the DB.
+		_ = err
 	}
 	if _, err := admin.ExecContext(context.Background(),
 		fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, dbName),
@@ -175,13 +175,13 @@ func ensureDatabase(adminDSN, dbName string) error {
 // docker-compose. The CI runner has Docker baked in, so the
 // dependency is already implied.
 //
-// The container name is read from the FIRESIDE_TEST_PG_CONTAINER
-// env var (default: `fireside-postgres`).
+// The container name is resolved by discoverContainer: an explicit
+// FIRESIDE_TEST_PG_CONTAINER env var wins, otherwise the container is
+// located by its published port (GitHub Actions service containers get
+// auto-generated names), with `fireside-postgres` (docker-compose) as
+// the last resort.
 func mirrorSchema(adminDSN, packageName string) error {
-	container := os.Getenv("FIRESIDE_TEST_PG_CONTAINER")
-	if container == "" {
-		container = "fireside-postgres"
-	}
+	container := discoverContainer(adminDSN)
 	// Sanitize the package name for postgres identifier rules.
 	if !isSafeIdent(packageName) {
 		return fmt.Errorf("unsafe package DB name %q", packageName)
@@ -227,6 +227,30 @@ func mirrorSchema(adminDSN, packageName string) error {
 	return nil
 }
 
+// discoverContainer resolves the Postgres container to run pg_dump
+// through. Priority: FIRESIDE_TEST_PG_CONTAINER env var → a container
+// publishing the DSN's port (works for GitHub Actions service
+// containers, whose names are auto-generated) → `fireside-postgres`
+// (the docker-compose default).
+func discoverContainer(adminDSN string) string {
+	if env := os.Getenv("FIRESIDE_TEST_PG_CONTAINER"); env != "" {
+		return env
+	}
+	port := "5432"
+	if u, err := url.Parse(adminDSN); err == nil && u.Port() != "" {
+		port = u.Port()
+	}
+	out, err := exec.Command("docker", "ps", "--filter", "publish="+port, "--format", "{{.Names}}").Output()
+	if err == nil {
+		for _, name := range strings.Fields(string(out)) {
+			if name != "" {
+				return name
+			}
+		}
+	}
+	return "fireside-postgres"
+}
+
 // isSafeIdent returns true if s is a plausible PostgreSQL identifier
 // (lowercase letters, digits, underscore). pg_dump produces
 // statements that quote identifiers, so we only need to be sure we
@@ -236,14 +260,9 @@ func isSafeIdent(s string) bool {
 		return false
 	}
 	for _, ch := range s {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_') {
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '_' {
 			return false
 		}
 	}
 	return true
-}
-
-// stripSlash returns the path without the leading slash.
-func stripSlash(s string) string {
-	return strings.TrimPrefix(s, "/")
 }

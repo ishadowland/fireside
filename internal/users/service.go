@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
@@ -110,9 +111,11 @@ func patchMeHandler(cfg Config) gin.HandlerFunc {
 			return
 		}
 		// Reject leading/trailing whitespace and control chars.
-		// SplitString trims + length-checks in one pass.
 		name := strings.TrimSpace(req.DisplayName)
-		if len(name) > MaxDisplayNameLen {
+		// Count runes, not bytes: the RFC's 64-char limit and the DB's
+		// VARCHAR(64) both count characters (Chinese names would be
+		// rejected at ~21 chars under a byte count).
+		if utf8.RuneCountInString(name) > MaxDisplayNameLen {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": errInvalidArg,
 				"detail": fmt.Sprintf("display_name must be <= %d chars", MaxDisplayNameLen),

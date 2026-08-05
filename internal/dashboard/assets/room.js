@@ -104,7 +104,9 @@
 
   async function loadParticipants() {
     try {
-      const data = await Fireside.jwtFetch("GET", `/v1/rooms/${encodeURIComponent(ROOM_ID)}/participants`, token);
+      // GET /v1/rooms/:id returns { room, participants } — there is
+      // no separate /participants REST endpoint in Sprint 1.
+      const data = await Fireside.jwtFetch("GET", `/v1/rooms/${encodeURIComponent(ROOM_ID)}`, token);
       const list = data.participants || data.items || (Array.isArray(data) ? data : []);
       renderParticipants(list);
     } catch (err) {
