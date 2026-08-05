@@ -110,4 +110,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.0.0  # .golangci.yml uses v2 schema
+          # v2.0.0 was rejected by golangci-lint-action@v9 ("we support
+          # only v2.1.0 and later"); v2.1.0 is the earliest compatible
+          # release and keeps the same linter set (see .golangci.yml).
+          version: v2.1.0
