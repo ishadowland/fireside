@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,6 +36,7 @@ type fakeStore struct {
 	users         map[string]store.User
 	tokens        map[string]store.AuthToken // jti string -> row (access)
 	refreshTokens map[string]store.InsertRefreshTokenParams
+	replaced      map[string]string // refresh jti -> replacement jti (rotation tracking)
 }
 
 func newFakeStore() *fakeStore {
@@ -42,6 +44,7 @@ func newFakeStore() *fakeStore {
 		users:         make(map[string]store.User),
 		tokens:        make(map[string]store.AuthToken),
 		refreshTokens: make(map[string]store.InsertRefreshTokenParams),
+		replaced:      make(map[string]string),
 	}
 }
 
@@ -407,9 +410,10 @@ func userIDFromToken(t *testing.T, tokenStr string) string {
 }
 
 
-// Refresh-token stubs (issue #9 WP-7.9). The fakeStore is a
-// pass-through: it doesn't simulate replay defense, just stores
-// what the handler writes.
+// Refresh-token stubs (issue #9 WP-7.9). The fakeStore now simulates
+// rotation tracking (replaced map) so the replay/revoke path in
+// RefreshHandler is exercised: a token already in `replaced` behaves
+// as if a previous rotation marked it used.
 func (f *fakeStore) InsertRefreshToken(_ context.Context, arg store.InsertRefreshTokenParams) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -424,34 +428,58 @@ func (f *fakeStore) GetRefreshToken(_ context.Context, jti string) (store.Refres
 	if !ok {
 		return store.RefreshToken{}, sql.ErrNoRows
 	}
+	replacedBy := sql.NullString{Valid: false}
+	if repl, ok := f.replaced[jti]; ok {
+		replacedBy = sql.NullString{String: repl, Valid: true}
+	}
 	return store.RefreshToken{
-		JTI:         row.JTI,
-		UserID:      row.UserID,
-		FamilyID:    row.FamilyID,
-		ExpiresAt:   row.ExpiresAt,
-		ReplacedByJTI: sql.NullString{String: row.JTI, Valid: false}, // simplified
+		JTI:           row.JTI,
+		UserID:        row.UserID,
+		FamilyID:      row.FamilyID,
+		ExpiresAt:     row.ExpiresAt,
+		ReplacedByJTI: replacedBy,
 	}, nil
 }
 
-func (f *fakeStore) MarkRefreshTokenReplaced(_ context.Context, jti, _ string) (int64, error) {
+func (f *fakeStore) MarkRefreshTokenReplaced(_ context.Context, jti, replacedBy string) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	row, ok := f.refreshTokens[jti]
 	if !ok {
 		return 0, nil
 	}
-	// Simplified: just pretend the replacement succeeded. The
-	// real implementation would set replaced_by_jti here.
+	if _, already := f.replaced[jti]; already {
+		// Replay: a previous rotation already consumed this token.
+		return 0, nil
+	}
+	f.replaced[jti] = replacedBy
 	_ = row
 	return 1, nil
 }
 
-func (f *fakeStore) DeleteRefreshToken(_ context.Context, _ string) (int64, error) {
-	return 0, nil
+func (f *fakeStore) DeleteRefreshToken(_ context.Context, jti string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.refreshTokens[jti]; !ok {
+		return 0, nil
+	}
+	delete(f.refreshTokens, jti)
+	delete(f.replaced, jti)
+	return 1, nil
 }
 
-func (f *fakeStore) DeleteRefreshFamily(_ context.Context, _ string) (int64, error) {
-	return 0, nil
+func (f *fakeStore) DeleteRefreshFamily(_ context.Context, familyID string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var deleted int64
+	for jti, row := range f.refreshTokens {
+		if row.FamilyID == familyID {
+			delete(f.refreshTokens, jti)
+			delete(f.replaced, jti)
+			deleted++
+		}
+	}
+	return deleted, nil
 }
 
 
@@ -506,6 +534,50 @@ func TestRefreshHandler_RotatesToken(t *testing.T) {
 	// The new refresh token should be inserted.
 	if _, ok := fs.refreshTokens[body.RefreshToken]; !ok {
 		t.Error("new refresh token not in store")
+	}
+	// The access token's jti must be persisted for ADR-0007 replay
+	// defense, mirroring the login path (issue #33).
+	claims, err := Validate(testSecret, body.Token)
+	if err != nil {
+		t.Fatalf("validate access token: %v", err)
+	}
+	if !fs.hasToken(claims.JTI) {
+		t.Errorf("access token jti %q not persisted", claims.JTI)
+	}
+}
+
+func TestRefreshHandler_ReplayRevokesFamily(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	hr, fs := newTestEngineWithStore(t)
+	userID := "01HREFRESH0000000000000000XX"
+	familyID := "01HREFFAMILY00000000000000"
+	jti := "01HREFRESHTOKEN00000000000AA"
+	fs.refreshTokens[jti] = store.InsertRefreshTokenParams{
+		JTI:       jti,
+		UserID:    userID,
+		FamilyID:  familyID,
+		ExpiresAt: sql.NullTime{Time: time.Now().Add(7 * 24 * time.Hour), Valid: true},
+	}
+	// Simulate a token that a previous rotation already consumed: the
+	// mark step will report 0 rows affected, triggering family revoke.
+	fs.replaced[jti] = "01HREFRESHTOKEN00000000000BB"
+
+	w := postJSON(t, hr, "/v1/auth/refresh", `{"refresh_token":"`+jti+`"}`)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "refresh_token_replayed") {
+		t.Errorf("body = %s, want refresh_token_replayed", w.Body.String())
+	}
+	// The whole family must be revoked (the replacement token the
+	// handler inserted is deleted along with the original).
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if len(fs.refreshTokens) != 0 {
+		t.Errorf("family not revoked: refreshTokens = %v", fs.refreshTokens)
+	}
+	if len(fs.replaced) != 0 {
+		t.Errorf("family revocation left replaced tracking: %v", fs.replaced)
 	}
 }
 

@@ -41,6 +41,12 @@ import (
 // The first call for a given pkg creates the database; subsequent
 // calls reuse it. Caller must defer db.Close() and must not share
 // the *sql.DB across packages.
+//
+// Provisioning the per-package DB needs docker (pg_dump/psql inside
+// the Postgres container). If docker or the container isn't
+// available, OpenTestDB falls back to the base FIRESIDE_TEST_DSN
+// directly so local machines can still run the suites — callers must
+// then serialize with -p 1 because the base DB is shared.
 func OpenTestDB(t *testing.T, pkg string) *sql.DB {
 	t.Helper()
 	dsn := os.Getenv("FIRESIDE_TEST_DSN")
@@ -50,6 +56,14 @@ func OpenTestDB(t *testing.T, pkg string) *sql.DB {
 	packageDB, adminDB, err := splitDSN(dsn, pkg)
 	if err != nil {
 		t.Fatalf("testutil.OpenTestDB(%s): split DSN: %v", pkg, err)
+	}
+
+	// Isolated per-package DBs are only worth it when we can also
+	// provision them; otherwise connect to the base test DB (the
+	// pre-change behavior) and let the caller serialize with -p 1.
+	if !pgDumpAvailable(adminDB) {
+		t.Logf("testutil.OpenTestDB(%s): docker/PG container unavailable — using base FIRESIDE_TEST_DSN directly (parallel runs need -p 1)", pkg)
+		return openTestDB(t, dsn)
 	}
 
 	// Create the per-package DB if it doesn't exist (using the
@@ -70,25 +84,42 @@ func OpenTestDB(t *testing.T, pkg string) *sql.DB {
 		t.Fatalf("testutil.OpenTestDB(%s): mirror schema: %v", pkg, err)
 	}
 
-	// Apply migrations: the caller is expected to run `migrate up`
-	// themselves against the package DB before running the test
-	// suite (the CI workflow does this for `fireside_test`; for
-	// per-package DBs the test setup script must do the same).
-	//
-	// openTestDB does NOT apply migrations here because the
-	// migrate binary is a separate process and pulling it into the
-	// test binary would require importing the migration files.
-	// Tests that need a migrated schema should call a project-level
-	// `setupSuite` helper that wraps OpenTestDB.
+	return openTestDB(t, packageDB)
+}
 
-	conn, err := sql.Open("pgx", packageDB)
+// openTestDB connects to a DSN, skipping the test when Postgres is
+// unreachable.
+func openTestDB(t *testing.T, dsn string) *sql.DB {
+	t.Helper()
+	conn, err := sql.Open("pgx", dsn)
 	if err != nil {
-		t.Fatalf("testutil.OpenTestDB(%s): sql.Open: %v", pkg, err)
+		t.Fatalf("testutil.OpenTestDB: sql.Open: %v", err)
 	}
 	if err := conn.Ping(); err != nil {
-		t.Skipf("testutil.OpenTestDB(%s): Postgres not reachable (%v) — skipping.", pkg, err)
+		_ = conn.Close()
+		t.Skipf("testutil.OpenTestDB: Postgres not reachable (%v) — skipping.", err)
 	}
 	return conn
+}
+
+// pgDumpAvailable reports whether per-package DBs can be provisioned
+// via docker exec pg_dump: docker must exist and the resolved PG
+// container must be running.
+func pgDumpAvailable(adminDSN string) bool {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return false
+	}
+	container := discoverContainer(adminDSN)
+	out, err := exec.Command("docker", "ps", "--format", "{{.Names}}").Output()
+	if err != nil {
+		return false
+	}
+	for _, name := range strings.Fields(string(out)) {
+		if name == container {
+			return true
+		}
+	}
+	return false
 }
 
 // splitDSN returns the package-specific DSN and an admin DSN that
@@ -130,6 +161,9 @@ func packageDBName(dsn string) string {
 // ensureDatabase creates the named database if it doesn't exist.
 // Uses the admin connection to issue the CREATE DATABASE.
 func ensureDatabase(adminDSN, dbName string) error {
+	if !isSafeIdent(dbName) {
+		return fmt.Errorf("unsafe database name %q", dbName)
+	}
 	admin, err := sql.Open("pgx", adminDSN)
 	if err != nil {
 		return fmt.Errorf("open admin: %w", err)
@@ -182,13 +216,31 @@ func ensureDatabase(adminDSN, dbName string) error {
 // the last resort.
 func mirrorSchema(adminDSN, packageName string) error {
 	container := discoverContainer(adminDSN)
-	// Sanitize the package name for postgres identifier rules.
 	if !isSafeIdent(packageName) {
 		return fmt.Errorf("unsafe package DB name %q", packageName)
 	}
 
-	dump := exec.Command("docker", "exec", container,
-		"pg_dump", "--schema-only", "--no-owner", "--no-privileges", adminDSN)
+	// Never put the DB password in the docker argv — it would show up
+	// in `ps` output on the host and in the container. Pass it via
+	// PGPASSWORD and strip it from the DSNs we hand to pg_dump/psql.
+	pw := dsnPassword(adminDSN)
+	dumpDSN := stripPasswordDSN(adminDSN)
+	pkgDSN, err := dbDSN(adminDSN, packageName)
+	if err != nil {
+		return fmt.Errorf("build package DSN: %w", err)
+	}
+	pkgDSN = stripPasswordDSN(pkgDSN)
+
+	execArgs := func(extra ...string) []string {
+		args := []string{"exec"}
+		if pw != "" {
+			args = append(args, "-e", "PGPASSWORD="+pw)
+		}
+		return append(args, extra...)
+	}
+
+	dump := exec.Command("docker", execArgs(container,
+		"pg_dump", "--schema-only", "--no-owner", "--no-privileges", dumpDSN)...)
 	var dumpOut bytes.Buffer
 	dump.Stdout = &dumpOut
 	dump.Stderr = os.Stderr
@@ -196,28 +248,10 @@ func mirrorSchema(adminDSN, packageName string) error {
 		return fmt.Errorf("pg_dump: %w", err)
 	}
 
-	// Build the package DSN with the password stripped (we set
-	// PGPASSWORD on the docker exec invocation).
-	packageDSN := strings.Replace(adminDSN, "/"+packageDBName(adminDSN)+"?", "/"+packageName+"?", 1)
-	if u, err := url.Parse(packageDSN); err == nil && u.User != nil {
-		u.User = url.User(u.User.Username())
-		packageDSN = u.String()
-	}
-
-	// Build the docker exec command. We pass PGPASSWORD via -e
-	// so the password isn't visible in the container's resolved
-	// argv or in ps output. We also need -i so the command reads
-	// stdin from the host (psql is the consumer).
-	//
-	// Final argument order: docker exec [-e PGPASSWORD=...] -i <container> psql --dbname=...
-	args := []string{"exec"}
-	if u, err := url.Parse(adminDSN); err == nil && u.User != nil {
-		if pw, ok := u.User.Password(); ok {
-			args = append(args, "-e", "PGPASSWORD="+pw)
-		}
-	}
-	args = append(args, "-i", container, "psql", "--dbname="+packageDSN, "--variable", "ON_ERROR_STOP=1")
-	restore := exec.Command("docker", args...)
+	// Build the docker exec command for psql: -i so it reads stdin
+	// (the pg_dump output) from the host.
+	restore := exec.Command("docker", execArgs("-i", container,
+		"psql", "--dbname="+pkgDSN, "--variable", "ON_ERROR_STOP=1")...)
 	restore.Stdin = &dumpOut
 	restore.Stdout = os.Stdout
 	restore.Stderr = os.Stderr
@@ -225,6 +259,38 @@ func mirrorSchema(adminDSN, packageName string) error {
 		return fmt.Errorf("psql: %w", err)
 	}
 	return nil
+}
+
+// dsnPassword extracts the password embedded in a Postgres DSN.
+func dsnPassword(dsn string) string {
+	u, err := url.Parse(dsn)
+	if err != nil || u.User == nil {
+		return ""
+	}
+	pw, _ := u.User.Password()
+	return pw
+}
+
+// stripPasswordDSN returns the DSN without its password (the
+// password travels via PGPASSWORD instead of the argv).
+func stripPasswordDSN(dsn string) string {
+	u, err := url.Parse(dsn)
+	if err != nil || u.User == nil {
+		return dsn
+	}
+	u.User = url.User(u.User.Username())
+	return u.String()
+}
+
+// dbDSN rebuilds a DSN pointing at the named database, preserving
+// host, port, user and query string from baseDSN.
+func dbDSN(baseDSN, dbName string) (string, error) {
+	u, err := url.Parse(baseDSN)
+	if err != nil {
+		return "", err
+	}
+	u.Path = "/" + dbName
+	return u.String(), nil
 }
 
 // discoverContainer resolves the Postgres container to run pg_dump

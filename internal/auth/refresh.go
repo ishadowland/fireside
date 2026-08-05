@@ -22,10 +22,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/oklog/ulid/v2"
 
 	"github.com/ishadowland/fireside/internal/store"
@@ -73,7 +75,7 @@ func RefreshHandler(cfg Config) gin.HandlerFunc {
 		}
 
 		// Issue new tokens. Family stays the same.
-		accessToken, _, err := Issue(cfg.JWTSecret, row.UserID, cfg.AccessTokenTTL)
+		accessToken, accessJTI, err := Issue(cfg.JWTSecret, row.UserID, cfg.AccessTokenTTL)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
@@ -97,12 +99,34 @@ func RefreshHandler(cfg Config) gin.HandlerFunc {
 			return
 		}
 		if affected == 0 {
-			// Replay defense: kill the entire family.
+			// Replay defense: kill the entire family. The access token
+			// minted above is never handed out and its jti is not
+			// persisted; the just-inserted refresh token is deleted by
+			// the family revocation below.
 			if _, err := cfg.Tokens.DeleteRefreshFamily(c.Request.Context(), row.FamilyID); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 				return
 			}
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh_token_replayed"})
+			return
+		}
+
+		// Persist the new access token's jti for ADR-0007 replay defense,
+		// mirroring the login path. Done only after a successful rotation
+		// so a replayed request never leaves a live access token behind.
+		jtUUID, perr := uuid.Parse(accessJTI)
+		if perr != nil {
+			slog.Error("auth: refresh: invalid jti from Issue", "err", perr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+			return
+		}
+		if _, err := cfg.Tokens.InsertToken(c.Request.Context(), store.InsertTokenParams{
+			Jti:       jtUUID,
+			UserID:    row.UserID,
+			ExpiresAt: sql.NullTime{Time: time.Now().Add(cfg.AccessTokenTTL), Valid: true},
+		}); err != nil {
+			slog.Error("auth: refresh: failed to persist access token jti", "err", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 
