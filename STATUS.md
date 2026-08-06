@@ -12,7 +12,7 @@
 > Tag: `v0.2-minimal-demo` exists in the history; a `v0.3-wp7-wp8` tag
 > is the next natural cut after the reviewer signs off.
 
-Last updated: 2026-08-04
+Last updated: 2026-08-05
 
 ## Where we are
 
@@ -205,12 +205,44 @@ dispatch loop and the REST end/messages handlers (issue #18).
 
 (commit `72f7676`)
 
-### Issue closeouts (2026-08-02 → 2026-08-04)
+### Sprint 1.5 review acceptance (2026-08-05, commit `8040ead`)
 
-19 Sprint 1 / 1 issues closed (Sprint 1 only leaves #11 WP-9:
+The reviewer's three commits (CI golangci-lint bump + WP-7/WP-8
+batch + Sprint 1.5 refresh/testutil batch) were applied locally. The
+ten issues they addressed (all now closed) are:
+
+- **#27** testutil hard-codes container name → `discoverContainer`
+  by published port
+- **#28** testutil 4 golangci-lint issues → `defer` errcheck +
+  explicit `_ = err` + De Morgan + drop unused `stripSlash`
+- **#29** room.js hits nonexistent `/participants` → read
+  `GET /v1/rooms/:id` (which carries `participants` in the same
+  payload)
+- **#30** dashboard timestamps blank → `fmtTime` accepts RFC3339
+  strings as well as `{seconds}`
+- **#31** display_name counts bytes → counts runes
+  (`utf8.RuneCountInString`) so Chinese names up to 64 chars
+  work
+- **#32** duplicate `<meta charset>` line → drop
+- **#33** refresh issues access token without persisting jti
+  (bypasses ADR-0007) → persist jti after successful rotation
+- **#34** replay + family-revoke path has no unit test →
+  `TestRefreshHandler_ReplayRevokesFamily` + extended
+  `TestRefreshHandler_RotatesToken`
+- **#35** testutil password leaks into docker argv → use
+  `PGPASSWORD` env + `url.Parse`-based DSN builders
+- **#36** testutil without docker is unrunnable → fall back to
+  the base `FIRESIDE_TEST_DSN` (parallel runs need `-p 1`)
+
+(commit `8040ead`)
+
+### Issue closeouts (2026-08-02 → 2026-08-05)
+
+26 issues closed across Sprint 1 + Sprint 1.5 review (Sprint 1
+only leaves #11 WP-9:
 
 ```
-#1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #26
+#1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24, #25, #26, #27, #28, #29, #30, #31, #32, #33, #34, #35, #36
 ```
 
 ## Sprint 1 verification (latest local run, 2026-08-04)
@@ -218,20 +250,23 @@ dispatch loop and the REST end/messages handlers (issue #18).
 ```
 go test -race -count=1 ./...
 ?  cmd/fireside           [no test files]
-ok internal/auth           2.4s
+ok internal/auth           2.7s
 ?  internal/config         [no test files]
-ok internal/dashboard      1.7s
-ok internal/hub            8.4s
-ok internal/messages      13.0s
-ok internal/participants  15.1s
-ok internal/rooms         10.4s
+ok internal/dashboard      2.2s
+ok internal/hub            7.3s
+ok internal/messages      17.1s
+ok internal/participants  19.2s
+ok internal/rooms         13.7s
 ?  internal/store          [no test files]
 ?  internal/testutil       [no test files]
 ?  internal/users          [no test files]
-ok internal/ws             5.2s
+ok internal/ws             5.8s
 ```
 
-17.2s wall time, race-clean, 7/7 packages green.
+20.4s wall time, race-clean, 7/7 packages green. (The slight
+slowdown vs. the 17.2s reading is the reviewer testutil fallback
+path exercising the docker pg_dump + psql pipeline, which is
+the cost of per-package DB isolation.)
 
 End-to-end smoke (`/tmp/wpe2e/e2e_dashboard.js`) exercises RFC
 §7.2 steps 1–8 with two browser stubs, plus the new issue #22
@@ -305,13 +340,22 @@ substantive work is either:
 
 ## Open invitations
 
-- Reviewer: please rebase and verify the per-package test infra
-  under your CI matrix (commands `go test -race -count=1 ./...`
-  + `FIRESIDE_TEST_DSN=...` should drop `-p 1` cleanly).
-- Reviewer: please confirm the refresh token rotation matches
-  the family-revoke semantics you intended (issue #9 acceptance
-  criterion "Refresh token rotation: old refresh jti marked used,
-  new pair issued" is met; family revoke is a stricter
-  implementation).
-- Reviewer: please advise on whether the dashboard modal for
-  display_name should be Sprint 1.6 scope or deferred to Sprint 2.
+The reviewer's three Sprint 1.5 push commits have been accepted
+into this branch as commit `8040ead` and the corresponding ten
+issues (#27 through #36) are now closed on the GitHub side.
+
+For the next round, the natural follow-ups are:
+
+- **Sprint 1.5 (WP-9 Android)** — the only remaining open issue
+  (`#11`). The backend protocol is stable; Android is its own
+  track.
+- **Sprint 2 WS-2 Agent** — the user-facing agent loop. This is
+  the harder design problem and the natural next IPD cycle.
+- **Sprint 1.6 housekeeping** — close the RFC §2.3 deviations,
+  add the `keep_messages_on_end` retention worker, finish the
+  display_name modal in the dashboard login flow.
+- **Run CI under reviewer's per-package DB testutil** to confirm
+  the reviewer's `discoverContainer` resolves the right container
+  on the GitHub Actions runner (the local fallback path is only
+  exercised when docker / PG container are unavailable, which is
+  not the case on CI).
