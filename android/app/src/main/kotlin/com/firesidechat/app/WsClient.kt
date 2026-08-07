@@ -8,12 +8,15 @@ import okhttp3.WebSocketListener
 import org.json.JSONObject
 
 /**
- * Thin OkHttp WebSocket wrapper for the Fireside Sprint 0 auth handshake.
+ * Thin OkHttp WebSocket wrapper for Fireside (auth handshake + WP-9
+ * business frames).
  *
  * Lifecycle:
  *   connect(baseUrl, onEvent)  → emits Connecting, then Open on success
- *   sendHello(token)           → must be called between Open and the first
- *                                server frame; returns false if not yet open
+ *   sendHello(token)           → auth.hello between Open and first frame
+ *   sendSubscribe(id)          → room.subscribe
+ *   sendUnsubscribe(id)        → room.unsubscribe
+ *   sendMessage(id, content)   → msg.send
  *   close()                    → tears down the connection cleanly
  *
  * The baseUrl is the ws://host:port root. The library appends the
@@ -57,10 +60,11 @@ class WsClient(
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val evt = parseFrame(text)
                 onEvent(evt)
-                if (evt is WsEvent.Error) {
-                    // Server signaled a protocol-level error — close so
-                    // onClosed fires and the UI shows the terminal state.
-                    webSocket.close(1008, "auth failed")
+                if (evt is WsEvent.Error && evt.fatal) {
+                    // Protocol-level failure (auth.error / bad_frame) —
+                    // close so onClosed fires and the UI shows the terminal
+                    // state. Recoverable business errors do NOT close.
+                    webSocket.close(1008, "fatal protocol error")
                 }
             }
 
@@ -79,18 +83,39 @@ class WsClient(
      * Send the auth.hello frame. Returns false if the socket is not yet
      * open (caller should retry once [WsEvent.Open] arrives).
      */
-    fun sendHello(token: String): Boolean {
-        val ws = socket ?: return false
-        val frame = JSONObject().apply {
-            put("type", "auth.hello")
-            put("token", token)
-        }.toString()
-        return ws.send(frame)
+    fun sendHello(token: String): Boolean = sendFrame {
+        put("type", "auth.hello")
+        put("token", token)
+    }
+
+    /** Send room.subscribe. Returns false if the socket is not open. */
+    fun sendSubscribe(roomId: String): Boolean = sendFrame {
+        put("type", "room.subscribe")
+        put("room_id", roomId)
+    }
+
+    /** Send room.unsubscribe. Returns false if the socket is not open. */
+    fun sendUnsubscribe(roomId: String): Boolean = sendFrame {
+        put("type", "room.unsubscribe")
+        put("room_id", roomId)
+    }
+
+    /** Send msg.send. Returns false if the socket is not open. */
+    fun sendMessage(roomId: String, content: String): Boolean = sendFrame {
+        put("type", "msg.send")
+        put("room_id", roomId)
+        put("content", content)
     }
 
     fun close() {
         socket?.close(1000, "client closed")
         socket = null
+    }
+
+    private inline fun sendFrame(build: JSONObject.() -> Unit): Boolean {
+        val ws = socket ?: return false
+        val frame = JSONObject().apply(build).toString()
+        return ws.send(frame)
     }
 
     private fun parseFrame(text: String): WsEvent {
@@ -104,14 +129,37 @@ class WsClient(
                 "auth.error" -> WsEvent.Error(
                     code = obj.optString("code"),
                     message = obj.optString("error"),
+                    fatal = true,
+                )
+                "room.subscribed" -> WsEvent.RoomSubscribed(
+                    roomId = obj.optString("room_id"),
+                    connId = obj.optString("conn_id"),
+                    serverTime = obj.optLong("server_time"),
+                )
+                "room.unsubscribed" -> WsEvent.RoomUnsubscribed(
+                    roomId = obj.optString("room_id"),
+                )
+                "msg.created" -> WsEvent.MsgCreated(
+                    message = Message.fromJson(obj.getJSONObject("message")),
+                )
+                "room.ended" -> WsEvent.RoomEnded(
+                    roomId = obj.optString("room_id"),
+                    endedBy = obj.optString("ended_by"),
+                    serverTime = obj.optLong("server_time"),
+                )
+                "error" -> WsEvent.Error(
+                    code = obj.optString("code"),
+                    message = obj.optString("message").ifEmpty { obj.optString("error") },
+                    fatal = false,
                 )
                 else -> WsEvent.Error(
                     code = "bad_frame",
                     message = "unexpected type: $type",
+                    fatal = true,
                 )
             }
         } catch (t: Throwable) {
-            WsEvent.Error("bad_frame", "failed to parse: ${t.message}")
+            WsEvent.Error("bad_frame", "failed to parse: ${t.message}", fatal = true)
         }
     }
 }

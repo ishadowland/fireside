@@ -88,4 +88,5 @@ private fun renderStatus(event: WsEvent): String = when (event) {
     is WsEvent.Welcome -> "✅ connected — user_id=${event.userId} jti=${event.jti}"
     is WsEvent.Error -> "❌ ${event.code}: ${event.message}"
     is WsEvent.Failure -> "❌ failure: ${event.cause.message ?: "unknown"}"
+    else -> "conn: $event"
 }
