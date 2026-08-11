@@ -55,6 +55,12 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	// Root redirects to the web dashboard so `http://host:port/` just
+	// works (the dashboard is loopback-only; see internal/dashboard).
+	engine.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/dashboard/")
+	})
+
 	queries := newUserStore(cfg.PostgresDSN)
 
 	// Sprint 1 WP-5: in-process broadcast hub. Created before
