@@ -67,7 +67,12 @@ func main() {
 	// services (so services can hold a reference if they need to
 	// publish; Sprint 1 only the WS handler publishes directly).
 	wsHub := hub.New(slog.Default())
-	defer func() { _ = wsHub }() // future: stop heartbeats
+	// Sprint 1.5 fix: StartHeartbeat was defined but never started, so
+	// the server never pinged clients and every idle WS conn was closed
+	// at the 60s read deadline (client sees close 1006). Pings every
+	// 30s keep subscribed conns alive (pongs reset the read deadline).
+	stopHeartbeat := wsHub.StartHeartbeat(30*time.Second, 60*time.Second)
+	defer stopHeartbeat()
 
 	auth.Mount(engine, auth.Config{
 		JWTSecret:      cfg.JWTSecret,

@@ -86,6 +86,11 @@ func MountBusiness(r *gin.Engine, cfg Config) {
 	r.GET("/ws/v1/connect", HandleConnect(cfg))
 }
 
+// dispatchReadDeadline is the read deadline HandleDispatch applies and
+// re-arms on every received frame/ping/pong. Package var so tests can
+// shrink it; 60s matches DefaultPongTimeout in production.
+var dispatchReadDeadline = 60 * time.Second
+
 // HandleDispatch is the per-conn post-auth read loop. It blocks
 // until the conn closes or returns an error.
 //
@@ -111,11 +116,20 @@ func HandleDispatch(
 	log := deps.Log.With("user_id", userID, "conn", deps.Hub.ConnID(conn))
 	log.Debug("HandleDispatch: enter")
 
-	// Reasonable read deadline — gorilla's ping handler resets this
-	// on each pong. 60s matches DefaultPongTimeout.
-	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// Reasonable read deadline — the pong handler resets this on every
+	// pong so idle-but-alive conns stay connected. 60s matches
+	// DefaultPongTimeout.
+	_ = conn.SetReadDeadline(time.Now().Add(dispatchReadDeadline))
 	conn.SetPingHandler(func(appData string) error {
-		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(dispatchReadDeadline))
+		return nil
+	})
+	// gorilla v1.5.3's DEFAULT pong handler does nothing (it no longer
+	// resets the read deadline), so without this explicit handler every
+	// idle conn would be killed at the deadline even though the hub
+	// heartbeat pings it and the client pongs. Reset the deadline here.
+	conn.SetPongHandler(func(string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(dispatchReadDeadline))
 		return nil
 	})
 
@@ -138,7 +152,7 @@ func HandleDispatch(
 			log.Info("HandleDispatch: read err, exiting", "err", err)
 			return
 		}
-		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(dispatchReadDeadline))
 
 		// Peek at the frame type. We decode twice (once into a small
 		// type-only struct, then into the real one) to avoid
