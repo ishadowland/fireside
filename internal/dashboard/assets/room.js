@@ -1,8 +1,9 @@
 /* Fireside Dashboard — room.html (chat).
  *
  * UX flow:
- *   1. On load: stub-login → fetch /v1/rooms/:id (room info) → fetch
- *      /v1/rooms/:id/participants (presence list) → WS connect + room.subscribe.
+ *   1. On load: stub-login → POST /:id/join (tolerates already_on_stage;
+ *      the host is not auto-joined on create) → fetch /v1/rooms/:id
+ *      (room info + participants) → WS connect + room.subscribe.
  *   2. Render messages received via WS frames (msg.created, system,
  *      room.ended).
  *   3. Send button → POST /v1/rooms/:id/messages and the REST handler
@@ -88,6 +89,21 @@
         <span class="stage">${Fireside.escapeHtml(stage)}${Fireside.escapeHtml(me)}</span>
       </li>`;
     }).join("");
+  }
+
+  async function ensureOnStage() {
+    // msg.send (WS) and POST /messages require the sender to be a
+    // participant on_stage. Joining from the lobby already put us on
+    // stage; a direct visit (or "create room" navigation, where the
+    // host is NOT auto-joined) needs an explicit join here. Tolerate
+    // 409 already_on_stage (we're already a participant).
+    try {
+      await Fireside.jwtFetch("POST", `/v1/rooms/${encodeURIComponent(ROOM_ID)}/join`, token);
+    } catch (err) {
+      if (!(err.status === 409 && err.body && err.body.error === "already_on_stage")) {
+        throw err;
+      }
+    }
   }
 
   async function loadRoom() {
@@ -197,6 +213,7 @@
         meId = payload.user_id || payload.sub || null;
       } catch { /* ignore */ }
       els.meId.textContent = meId || "(?)";
+      await ensureOnStage();
       await loadRoom();
       await loadParticipants();
       await connectAndSubscribe();
