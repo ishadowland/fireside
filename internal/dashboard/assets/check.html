@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fireside — 接口自检</title>
+  <link rel="stylesheet" href="/dashboard/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <h1>Fireside — 接口自检</h1>
+      <span class="badge">local-only · 端到端功能验证</span>
+      <div class="actions">
+        <a href="/dashboard/">首页</a>
+        <span class="dot">·</span>
+        <a href="/dashboard/rooms">大厅</a>
+        <span class="dot">·</span>
+        <code id="summary-count">0 / 0</code>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <button id="run-btn" class="primary">运行全部检查</button>
+        <span class="status" id="summary-status">未运行</span>
+      </div>
+      <table id="checks-table">
+        <thead>
+          <tr><th>#</th><th>检查项</th><th>接口</th><th>结果</th><th>耗时</th></tr>
+        </thead>
+        <tbody id="checks-tbody">
+          <tr><td colspan="5" class="empty">点击「运行全部检查」开始</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>日志</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script src="/dashboard/static/lib.js"></script>
+  <script src="/dashboard/static/check.js"></script>
+</body>
+</html>

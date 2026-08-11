@@ -161,6 +161,36 @@ func TestWP8RoomPageBlockedForRemote(t *testing.T) {
 	}
 }
 
+func TestCheckPageServedOnLoopback(t *testing.T) {
+	r := newTestRouter()
+	w := doLoopback(r, http.MethodGet, "/dashboard/check")
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /dashboard/check = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content type = %q, want text/html", ct)
+	}
+	if !strings.Contains(w.Body.String(), "接口自检") {
+		t.Error("check page missing title")
+	}
+	if !strings.Contains(w.Body.String(), "/dashboard/static/check.js") {
+		t.Error("check page missing check.js script reference")
+	}
+	if !strings.Contains(w.Body.String(), "/dashboard/static/lib.js") {
+		t.Error("check page missing lib.js script reference")
+	}
+}
+
+func TestCheckPageBlockedForRemote(t *testing.T) {
+	r := newTestRouter()
+	for _, p := range []string{"/dashboard/check", "/dashboard/static/check.js"} {
+		w := doRemote(r, http.MethodGet, p)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("remote GET %s = %d, want 404", p, w.Code)
+		}
+	}
+}
+
 func TestLibJSExposesFiresideGlobal(t *testing.T) {
 	r := newTestRouter()
 	w := doLoopback(r, http.MethodGet, "/dashboard/static/lib.js")

@@ -31,6 +31,9 @@ func Mount(r *gin.Engine, cfg Config) {
 		// WP-8: lobby + chat pages.
 		g.GET("/rooms", serveAsset("assets/rooms.html"))
 		g.GET("/rooms/:id", serveAsset("assets/room.html"))
+		// Interface self-check page (end-to-end functional validation
+		// of every currently-supported REST + WS interface).
+		g.GET("/check", serveAsset("assets/check.html"))
 		g.GET("/static/:file", serveAssetDir())
 	}
 
