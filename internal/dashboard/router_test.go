@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -187,6 +188,31 @@ func TestCheckPageBlockedForRemote(t *testing.T) {
 		w := doRemote(r, http.MethodGet, p)
 		if w.Code != http.StatusNotFound {
 			t.Errorf("remote GET %s = %d, want 404", p, w.Code)
+		}
+	}
+}
+
+func TestDashboardTestPhonesAreValidE164(t *testing.T) {
+	// Regression: rooms.js/room.js once shipped a masked placeholder
+	// "+861****8000", which fails LoginRequest's `e164` binding and makes
+	// every dashboard login return 400. Every TEST_PHONE constant across
+	// the embedded assets must be a valid E.164 number.
+	e164 := regexp.MustCompile(`^\+[1-9][0-9]{6,14}$`)
+	pat := regexp.MustCompile(`(?:TEST_PHONE|PHONE_A|PHONE_B)\s*=\s*"([^"]+)"`)
+	for _, name := range []string{"assets/app.js", "assets/rooms.js", "assets/room.js", "assets/check.js"} {
+		data, err := assets.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		ms := pat.FindAllStringSubmatch(string(data), -1)
+		if len(ms) == 0 {
+			t.Errorf("%s: no TEST_PHONE constant found", name)
+			continue
+		}
+		for _, m := range ms {
+			if !e164.MatchString(m[1]) {
+				t.Errorf("%s: TEST_PHONE %q is not a valid E.164 number", name, m[1])
+			}
 		}
 	}
 }

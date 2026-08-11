@@ -13,7 +13,7 @@
 (() => {
   "use strict";
 
-  const TEST_PHONE = "+861****8000";
+  const TEST_PHONE = "+8613800138000";
 
   const els = {
     meId: document.getElementById("me-id"),
