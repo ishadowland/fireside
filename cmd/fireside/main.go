@@ -26,6 +26,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 
 	"github.com/ishadowland/fireside/internal/auth"
+	"github.com/ishadowland/fireside/internal/admin"
 	"github.com/ishadowland/fireside/internal/config"
 	"github.com/ishadowland/fireside/internal/dashboard"
 	"github.com/ishadowland/fireside/internal/hub"
@@ -127,6 +128,13 @@ func main() {
 		Service:        usersService,
 		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
 		Log:            slog.Default(),
+	})
+
+	// Admin API (loopback-only, ADR-0019): force-close any room and
+	// delete room records. No JWT — the loopback gate is the auth.
+	admin.Mount(engine, admin.Config{
+		RoomsService: roomsService,
+		Hub:          wsHub,
 	})
 
 	// Sprint 1 WP-6: WS endpoint with post-auth business-frame

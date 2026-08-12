@@ -7,11 +7,12 @@ package dashboard
 
 import (
 	"embed"
-	"net"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/ishadowland/fireside/internal/loopback"
 )
 
 //go:embed assets/*
@@ -24,7 +25,7 @@ type Config struct {
 
 // Mount registers the dashboard routes onto r.
 func Mount(r *gin.Engine, cfg Config) {
-	g := r.Group("/dashboard", loopbackOnly())
+	g := r.Group("/dashboard", loopback.Middleware())
 	{
 		g.GET("", serveAsset("assets/index.html"))
 		g.GET("/", serveAsset("assets/index.html"))
@@ -34,32 +35,16 @@ func Mount(r *gin.Engine, cfg Config) {
 		// Interface self-check page (end-to-end functional validation
 		// of every currently-supported REST + WS interface).
 		g.GET("/check", serveAsset("assets/check.html"))
+		// Admin page (force-close / delete rooms; see internal/admin).
+		g.GET("/admin", serveAsset("assets/admin.html"))
 		g.GET("/static/:file", serveAssetDir())
 	}
 
-	cfgGroup := r.Group("/v1/dashboard", loopbackOnly())
+	cfgGroup := r.Group("/v1/dashboard", loopback.Middleware())
 	{
 		cfgGroup.GET("/config", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"stub_code": cfg.StubCode})
 		})
-	}
-}
-
-// loopbackOnly aborts with 404 for any non-loopback client. RemoteAddr is
-// used directly (not gin's ClientIP) so X-Forwarded-For cannot spoof a
-// loopback origin.
-func loopbackOnly() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		host, _, err := net.SplitHostPort(c.Request.RemoteAddr)
-		if err != nil {
-			host = strings.Trim(c.Request.RemoteAddr, "[]")
-		}
-		ip := net.ParseIP(host)
-		if ip == nil || !ip.IsLoopback() {
-			c.AbortWithStatus(http.StatusNotFound)
-			return
-		}
-		c.Next()
 	}
 }
 

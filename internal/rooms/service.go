@@ -149,3 +149,67 @@ func (s *Service) EndRoom(ctx context.Context, actorUserID, roomID string) error
 	}
 	return nil
 }
+
+// ListAllWithStats returns every room (active + ended), newest first,
+// with participant and message counts. Admin-only (see internal/admin).
+func (s *Service) ListAllWithStats(ctx context.Context) ([]RoomWithStatsView, error) {
+	rows, err := s.q.ListAllRoomsWithStats(ctx)
+	if err != nil {
+		s.log.Error("ListAllWithStats failed", "err", err)
+		return nil, err
+	}
+	out := make([]RoomWithStatsView, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, viewWithStatsFromStore(r))
+	}
+	return out, nil
+}
+
+// ForceCloseRoom marks any room as ended regardless of host (admin
+// force-close). Idempotent for already-ended rooms.
+//
+// Returns ErrRoomNotFound if the id has no row; nil if the room was
+// (or already is) ended. DB errors are surfaced for handler logging.
+func (s *Service) ForceCloseRoom(ctx context.Context, roomID string) error {
+	room, err := s.q.GetRoom(ctx, roomID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrRoomNotFound
+	}
+	if err != nil {
+		s.log.Error("ForceCloseRoom lookup failed", "room_id", roomID, "err", err)
+		return err
+	}
+	if !store.IsRoomActive(room.Status) {
+		return nil // already ended — idempotent
+	}
+	if _, err := s.q.EndRoom(ctx, roomID); err != nil {
+		s.log.Error("ForceCloseRoom update failed", "room_id", roomID, "err", err)
+		return err
+	}
+	return nil
+}
+
+// DeleteRoom removes a room and (via ON DELETE CASCADE) all of its
+// participants and messages. Returns ErrRoomNotFound if the id has no row.
+func (s *Service) DeleteRoom(ctx context.Context, roomID string) error {
+	rows, err := s.q.DeleteRoom(ctx, roomID)
+	if err != nil {
+		s.log.Error("DeleteRoom failed", "room_id", roomID, "err", err)
+		return err
+	}
+	if rows == 0 {
+		return ErrRoomNotFound
+	}
+	return nil
+}
+
+// DeleteAllRooms removes every room (and by cascade all participants
+// and messages). Returns the number of rooms deleted.
+func (s *Service) DeleteAllRooms(ctx context.Context) (int64, error) {
+	rows, err := s.q.DeleteAllRooms(ctx)
+	if err != nil {
+		s.log.Error("DeleteAllRooms failed", "err", err)
+		return 0, err
+	}
+	return rows, nil
+}

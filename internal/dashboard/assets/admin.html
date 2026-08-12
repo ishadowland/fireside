@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fireside — 管理后台</title>
+  <link rel="stylesheet" href="/dashboard/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <h1>Fireside — 管理后台</h1>
+      <span class="badge">local-only · 强制关闭 / 清除记录</span>
+      <div class="actions">
+        <a href="/dashboard/">首页</a>
+        <span class="dot">·</span>
+        <a href="/dashboard/rooms">大厅</a>
+        <span class="dot">·</span>
+        <a href="/dashboard/check">自检</a>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <button id="refresh-btn" class="primary">刷新列表</button>
+        <button id="clear-all-btn" class="danger">清空全部房间</button>
+        <span class="status" id="list-status"></span>
+      </div>
+      <table id="admin-table">
+        <thead>
+          <tr>
+            <th>房间名</th><th>状态</th><th>host</th><th>max</th>
+            <th>参与者</th><th>消息</th><th>创建</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="admin-tbody">
+          <tr><td colspan="8" class="empty">加载中…</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>事件日志</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script src="/dashboard/static/lib.js"></script>
+  <script src="/dashboard/static/admin.js"></script>
+</body>
+</html>

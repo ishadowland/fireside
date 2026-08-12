@@ -78,6 +78,24 @@ type ParticipantView struct {
 	LeftAt     *time.Time `json:"left_at,omitempty"`
 }
 
+// RoomWithStatsView is a RoomView plus participant/message counts,
+// used by the admin listing.
+type RoomWithStatsView struct {
+	RoomView
+	ParticipantCount int64 `json:"participant_count"`
+	MessageCount     int64 `json:"message_count"`
+}
+
+// viewWithStatsFromStore converts a store.RoomWithStats to a
+// RoomWithStatsView.
+func viewWithStatsFromStore(r store.RoomWithStats) RoomWithStatsView {
+	return RoomWithStatsView{
+		RoomView:         viewFromStore(r.Room),
+		ParticipantCount: r.ParticipantCount,
+		MessageCount:     r.MessageCount,
+	}
+}
+
 // viewFromStore converts a store.Room to a RoomView.
 //
 // status: store stores it as sql.NullString. We always Valid (DB column

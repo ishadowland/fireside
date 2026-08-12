@@ -174,3 +174,81 @@ func (q *Queries) CountOnStageParticipants(ctx context.Context, roomID string) (
 	err := row.Scan(&n)
 	return n, err
 }
+
+// RoomWithStats is a room plus its participant/message counts (admin
+// listing). ParticipantCount/MessageCount come from COUNT(*) subqueries.
+type RoomWithStats struct {
+	Room
+	ParticipantCount int64
+	MessageCount     int64
+}
+
+const listAllRoomsWithStats = `-- name: ListAllRoomsWithStats :many
+SELECT r.id, r.host_user_id, r.name, r.max_participants,
+       r.keep_messages_on_end, r.status, r.announcement, r.created_at,
+       r.ended_at,
+       (SELECT COUNT(*) FROM participants p WHERE p.room_id = r.id),
+       (SELECT COUNT(*) FROM messages m WHERE m.room_id = r.id)
+FROM rooms r
+ORDER BY r.created_at DESC
+`
+
+func (q *Queries) ListAllRoomsWithStats(ctx context.Context) ([]RoomWithStats, error) {
+	rows, err := q.db.QueryContext(ctx, listAllRoomsWithStats)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RoomWithStats
+	for rows.Next() {
+		var i RoomWithStats
+		if err := rows.Scan(
+			&i.ID, &i.HostUserID, &i.Name, &i.MaxParticipants, &i.KeepMessagesOnEnd,
+			&i.Status, &i.Announcement, &i.CreatedAt, &i.EndedAt,
+			&i.ParticipantCount, &i.MessageCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const deleteRoom = `-- name: DeleteRoom :exec
+DELETE FROM rooms
+WHERE id = $1
+`
+
+func (q *Queries) DeleteRoom(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteRoom, id)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return rows, nil
+}
+
+const deleteAllRooms = `-- name: DeleteAllRooms :exec
+DELETE FROM rooms
+`
+
+func (q *Queries) DeleteAllRooms(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAllRooms)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return rows, nil
+}

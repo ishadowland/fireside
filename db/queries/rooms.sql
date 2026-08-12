@@ -54,3 +54,24 @@ WHERE id = $1 AND status = 'active';
 SELECT COUNT(*)
 FROM participants
 WHERE room_id = $1 AND stage_state = 'on_stage';
+-- name: ListAllRoomsWithStats :many
+-- Admin view: every room (active + ended), newest first, with
+-- participant + message counts so the admin page can show impact
+-- before force-close / delete.
+SELECT r.id, r.host_user_id, r.name, r.max_participants,
+       r.keep_messages_on_end, r.status, r.announcement, r.created_at,
+       r.ended_at,
+       (SELECT COUNT(*) FROM participants p WHERE p.room_id = r.id) AS participant_count,
+       (SELECT COUNT(*) FROM messages m WHERE m.room_id = r.id) AS message_count
+FROM rooms r
+ORDER BY r.created_at DESC;
+
+-- name: DeleteRoom :exec
+-- Admin: delete a single room. participants + messages cascade
+-- (ON DELETE CASCADE in migrations 0004/0005).
+DELETE FROM rooms
+WHERE id = $1;
+
+-- name: DeleteAllRooms :exec
+-- Admin: clear every room (and by cascade all participants/messages).
+DELETE FROM rooms;

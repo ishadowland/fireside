@@ -217,6 +217,36 @@ func TestDashboardTestPhonesAreValidE164(t *testing.T) {
 	}
 }
 
+func TestAdminPageServedOnLoopback(t *testing.T) {
+	r := newTestRouter()
+	w := doLoopback(r, http.MethodGet, "/dashboard/admin")
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /dashboard/admin = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content type = %q, want text/html", ct)
+	}
+	for _, want := range []string{"管理后台", "/dashboard/static/admin.js", "/dashboard/static/lib.js"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("admin page missing %q", want)
+		}
+	}
+}
+
+func TestAdminStaticAndPageBlockedForRemote(t *testing.T) {
+	r := newTestRouter()
+	for _, p := range []string{"/dashboard/admin", "/dashboard/static/admin.js"} {
+		w := doRemote(r, http.MethodGet, p)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("remote GET %s = %d, want 404", p, w.Code)
+		}
+	}
+	w := doLoopback(r, http.MethodGet, "/dashboard/static/admin.js")
+	if w.Code != http.StatusOK {
+		t.Errorf("GET admin.js = %d, want 200", w.Code)
+	}
+}
+
 func TestLibJSExposesFiresideGlobal(t *testing.T) {
 	r := newTestRouter()
 	w := doLoopback(r, http.MethodGet, "/dashboard/static/lib.js")
