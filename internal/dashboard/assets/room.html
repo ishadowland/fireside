@@ -14,6 +14,8 @@
       <div class="actions">
         <a href="/dashboard/rooms">返回大厅</a>
         <span class="dot">·</span>
+        <a href="/dashboard/agents">Agent 管理器</a>
+        <span class="dot">·</span>
         <code id="me-id">…</code>
       </div>
     </header>
@@ -34,9 +36,57 @@
         </div>
         <div class="row chat-actions">
           <button id="end-btn" class="danger" disabled>结束房间</button>
+          <button id="export-btn">导出 MD</button>
           <span class="status" id="ws-status">未连接</span>
         </div>
       </section>
+    </section>
+
+    <section class="card">
+      <h2>AI 助手 1</h2>
+      <div class="row">
+        <span class="status" id="agent-status-1">加载中…</span>
+      </div>
+      <div class="row" id="agent-panel-1" hidden>
+        <select id="agent-preset-1" title="选择 Agent 管理器里保存的预置（接入方式/提示词来自预置）">
+          <option value="">选择 Agent 预置…</option>
+        </select>
+        <label class="cooldown-label" for="agent-cooldown-1" title="两次说话之间至少等待该秒数 + 0~5 秒随机抖动">冷却(s)</label>
+        <input id="agent-cooldown-1" type="number" min="0" max="3600" step="1" value="0" />
+        <button id="agent-invite-1">拉入房间</button>
+        <button id="agent-remove-1" class="danger" hidden>移除</button>
+      </div>
+      <div class="status" id="agent-msg-1"></div>
+    </section>
+
+    <section class="card">
+      <h2>AI 助手 2</h2>
+      <div class="row">
+        <span class="status" id="agent-status-2">加载中…</span>
+      </div>
+      <div class="row" id="agent-panel-2" hidden>
+        <select id="agent-preset-2" title="选择 Agent 管理器里保存的预置（接入方式/提示词来自预置）">
+          <option value="">选择 Agent 预置…</option>
+        </select>
+        <label class="cooldown-label" for="agent-cooldown-2" title="两次说话之间至少等待该秒数 + 0~5 秒随机抖动">冷却(s)</label>
+        <input id="agent-cooldown-2" type="number" min="0" max="3600" step="1" value="0" />
+        <button id="agent-invite-2">拉入房间</button>
+        <button id="agent-remove-2" class="danger" hidden>移除</button>
+      </div>
+      <div class="status" id="agent-msg-2"></div>
+    </section>
+
+    <section class="card">
+      <h2>自由发言</h2>
+      <div class="row">
+        <span class="status" id="fs-status">…</span>
+      </div>
+      <div class="row" id="fs-panel" hidden>
+        <label class="cooldown-label" for="fs-minutes">时长(分钟)</label>
+        <input id="fs-minutes" type="number" min="1" max="60" step="1" value="5" />
+        <button id="fs-toggle-btn">开启</button>
+      </div>
+      <div class="status" id="fs-msg"></div>
     </section>
 
     <section class="card">

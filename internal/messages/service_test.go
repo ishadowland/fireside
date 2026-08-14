@@ -20,6 +20,10 @@ import (
 	"github.com/ishadowland/fireside/internal/testutil"
 )
 
+// agentsDefaultID mirrors agents.DefaultAgentID (well-known CHAR(26)
+// sender id for the built-in agent; avoids an import cycle in tests).
+const agentsDefaultID = "01AGT000000000000000000000"
+
 func truncate(t *testing.T, db *sql.DB) {
 	t.Helper()
 	if _, err := db.ExecContext(context.Background(),
@@ -361,6 +365,7 @@ func TestService_GetMessage_NotFound(t *testing.T) {
 		t.Errorf("err = %v, want ErrMessageNotFound", err)
 	}
 }
+
 // TestService_CreateMessage_EndedRoom (issue #22 fix) verifies that
 // posting to a room with status='ended' returns ErrRoomEnded (not
 // ErrRoomNotFound). The REST mount maps ErrRoomEnded to 409; the WS
@@ -404,5 +409,74 @@ func TestService_CreateSystemMessage_EndedRoom(t *testing.T) {
 	}
 	if errors.Is(err, ErrRoomNotFound) {
 		t.Errorf("err also matches ErrRoomNotFound (issue #22 not fixed)")
+	}
+}
+
+func TestService_CreateAgentMessage_OK(t *testing.T) {
+	db := testutil.OpenTestDB(t, "messages")
+	defer func() { _ = db.Close() }()
+	truncate(t, db)
+	svc, _ := newTestService(t, db)
+
+	ctx := context.Background()
+	hostID := seedUser(t, db, "+8613800000007")
+	roomID := seedRoom(t, db, hostID)
+
+	view, err := svc.CreateAgentMessage(ctx, roomID, agentsDefaultID, "你好，我是 AI 助手。")
+	if err != nil {
+		t.Fatalf("CreateAgentMessage: %v", err)
+	}
+	if view.SenderKind != "agent" {
+		t.Errorf("SenderKind = %q, want %q", view.SenderKind, "agent")
+	}
+	if view.SenderID == nil || *view.SenderID != agentsDefaultID {
+		t.Errorf("SenderID = %v, want %q", view.SenderID, agentsDefaultID)
+	}
+	if view.ContentType != "text" {
+		t.Errorf("ContentType = %q, want %q", view.ContentType, "text")
+	}
+	if view.Content != "你好，我是 AI 助手。" {
+		t.Errorf("Content = %q, want reply text", view.Content)
+	}
+
+	// Persisted: readable via ListMessagesByRoom.
+	views, _, err := svc.ListMessagesByRoom(ctx, roomID, "", 10)
+	if err != nil {
+		t.Fatalf("ListMessagesByRoom: %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("len(views) = %d, want 1", len(views))
+	}
+}
+
+func TestService_CreateAgentMessage_EndedRoom(t *testing.T) {
+	db := testutil.OpenTestDB(t, "messages")
+	defer func() { _ = db.Close() }()
+	truncate(t, db)
+	svc, _ := newTestService(t, db)
+	ctx := context.Background()
+
+	hostID := seedUser(t, db, "+861380000911")
+	roomID := seedEndedRoom(t, db, hostID)
+
+	_, err := svc.CreateAgentMessage(ctx, roomID, agentsDefaultID, "hi")
+	if !errors.Is(err, ErrRoomEnded) {
+		t.Errorf("err = %v, want ErrRoomEnded", err)
+	}
+}
+
+func TestService_CreateAgentMessage_EmptyContent(t *testing.T) {
+	db := testutil.OpenTestDB(t, "messages")
+	defer func() { _ = db.Close() }()
+	truncate(t, db)
+	svc, _ := newTestService(t, db)
+	ctx := context.Background()
+
+	hostID := seedUser(t, db, "+861380000912")
+	roomID := seedRoom(t, db, hostID)
+
+	_, err := svc.CreateAgentMessage(ctx, roomID, agentsDefaultID, "")
+	if !errors.Is(err, ErrInvalidArg) {
+		t.Errorf("err = %v, want ErrInvalidArg", err)
 	}
 }

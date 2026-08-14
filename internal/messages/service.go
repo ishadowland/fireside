@@ -30,7 +30,16 @@ type Service struct {
 	q       *store.Queries
 	rooms   *rooms.Service
 	log     *slog.Logger
+	onAgent *AgentHook // set once at wiring; read in CreateMessage
 }
+
+// AgentHook is invoked after a human message is persisted (方式1 server-side
+// agent hook). Called synchronously; the agent implementation is expected to
+// launch its own background work (see internal/agents). nil disables.
+type AgentHook func(ctx context.Context, roomID string, msg MessageView)
+
+// SetAgentHook installs the agent hook. Called exactly once by main.go.
+func (s *Service) SetAgentHook(h AgentHook) { s.onAgent = &h }
 
 // NewService builds a Service. q is the sqlc-generated queries handle;
 // rooms is the rooms Service (used for room existence + on_stage checks);
@@ -117,7 +126,15 @@ func (s *Service) CreateMessage(ctx context.Context, actorUserID, roomID string,
 		s.log.Error("CreateMessage: store insert failed", "room_id", roomID, "actor", actorUserID, "err", err)
 		return MessageView{}, err
 	}
-	return messageViewFromStore(msg), nil
+	v := messageViewFromStore(msg)
+	// 5) Fire the agent hook (方式1): every human message triggers it while
+	// set. Deliberately AFTER persist so the agent has the message in history.
+	// Never fire for agent/system messages — CreateAgentMessage /
+	// CreateSystemMessage do not call this, so no self-triggering loop.
+	if s.onAgent != nil {
+		(*s.onAgent)(ctx, roomID, v)
+	}
+	return v, nil
 }
 
 // CreateSystemMessage is a package-private helper used by other internal
@@ -161,6 +178,47 @@ func (s *Service) CreateSystemMessage(ctx context.Context, roomID string, conten
 		return err
 	}
 	return nil
+}
+
+// CreateAgentMessage is a package-private helper used by the agents hook
+// (internal/agents) to persist an AI reply (sender_kind='agent').
+// NOT exposed to handlers (same as CreateSystemMessage).
+//
+// No on_stage check — the agent is not a participant; it only needs the
+// room to exist and be active, and content to be non-empty.
+//
+// Returns ErrRoomNotFound / ErrRoomEnded / ErrInvalidArg.
+func (s *Service) CreateAgentMessage(ctx context.Context, roomID, agentID, content string) (MessageView, error) {
+	room, _, err := s.rooms.GetRoom(ctx, roomID)
+	if errors.Is(err, rooms.ErrRoomNotFound) {
+		return MessageView{}, ErrRoomNotFound
+	}
+	if err != nil {
+		s.log.Error("CreateAgentMessage: room lookup failed", "room_id", roomID, "err", err)
+		return MessageView{}, err
+	}
+	if room.Status != store.RoomStatusActive {
+		return MessageView{}, ErrRoomEnded
+	}
+	if content == "" {
+		return MessageView{}, fmt.Errorf("%w: content required", ErrInvalidArg)
+	}
+
+	msg, err := s.q.CreateMessage(ctx, store.CreateMessageParams{
+		ID:          ulid.Make().String(),
+		RoomID:      roomID,
+		SenderKind:  sql.NullString{String: store.SenderKindAgent, Valid: true},
+		SenderID:    sql.NullString{String: agentID, Valid: true},
+		ContentType: sql.NullString{String: store.ContentTypeText, Valid: true},
+		Content:     content,
+		Mentions:    []byte("[]"),
+		ReplyToID:   sql.NullString{Valid: false},
+	})
+	if err != nil {
+		s.log.Error("CreateAgentMessage failed", "room_id", roomID, "agent_id", agentID, "err", err)
+		return MessageView{}, err
+	}
+	return messageViewFromStore(msg), nil
 }
 
 // ListMessagesByRoom returns up to limit messages in a room, newest

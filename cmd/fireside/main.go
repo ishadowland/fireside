@@ -25,16 +25,17 @@ import (
 	"github.com/gorilla/websocket"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 
-	"github.com/ishadowland/fireside/internal/auth"
 	"github.com/ishadowland/fireside/internal/admin"
+	"github.com/ishadowland/fireside/internal/agents"
+	"github.com/ishadowland/fireside/internal/auth"
 	"github.com/ishadowland/fireside/internal/config"
 	"github.com/ishadowland/fireside/internal/dashboard"
 	"github.com/ishadowland/fireside/internal/hub"
 	"github.com/ishadowland/fireside/internal/messages"
 	"github.com/ishadowland/fireside/internal/participants"
-	"github.com/ishadowland/fireside/internal/users"
 	"github.com/ishadowland/fireside/internal/rooms"
 	"github.com/ishadowland/fireside/internal/store"
+	"github.com/ishadowland/fireside/internal/users"
 	wspkg "github.com/ishadowland/fireside/internal/ws"
 )
 
@@ -83,10 +84,6 @@ func main() {
 		Tokens:         queries,
 	})
 
-	dashboard.Mount(engine, dashboard.Config{
-		StubCode: cfg.SMSStubCode,
-	})
-
 	// Sprint 1-2: periodic cleanup of expired auth_tokens rows so the
 	// table doesn't grow unbounded (ADR-0007 §Risks → "Replay").
 	startTokenCleanup(queries, 5*time.Minute)
@@ -124,6 +121,40 @@ func main() {
 		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
 	})
 
+	// 方式1 server-side agent hook: an AI replies in a room only after
+	// its HOST invites it (POST /v1/rooms/:id/agents). Invitations may
+	// reference a persisted agent preset (Agent 管理器, issue #38): the
+	// connection config (kind/endpoint/api token/model/prompt) comes from
+	// the preset, which is stored in a LOCAL file — never Postgres, never
+	// synced to GitHub (gitignored). Without a preset, the global
+	// in-memory /v1/dashboard/ai-config applies (legacy path).
+	presetPath := os.Getenv("FIRESIDE_AGENT_PRESET_FILE")
+	if presetPath == "" {
+		presetPath = "config/agents.local.json"
+	}
+	presetStore, err := agents.NewPresetStore(presetPath)
+	if err != nil {
+		slog.Error("agent preset store load failed", "path", presetPath, "err", err)
+		os.Exit(1)
+	}
+	agentsService := agents.NewService(queries, messagesService, roomsService, wsHub, slog.Default())
+	agentsService.SetPresets(presetStore)
+	if n := len(presetStore.List()); n > 0 {
+		slog.Info("agent presets loaded", "path", presetPath, "count", n)
+	} else {
+		slog.Info("agent presets empty (create them in /dashboard/agents)", "path", presetPath)
+	}
+	messagesService.SetAgentHook(agentsService.TriggerRoom)
+	agents.MountRoomAgents(engine, agents.MountConfig{
+		Service:        agentsService,
+		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
+	})
+
+	dashboard.Mount(engine, dashboard.Config{
+		StubCode: cfg.SMSStubCode,
+		Agents:   agentsService,
+	})
+
 	users.Mount(engine, users.Config{
 		Service:        usersService,
 		AuthMiddleware: auth.Middleware(cfg.JWTSecret),
@@ -151,8 +182,8 @@ func main() {
 		OnAuthenticated: func(uid string, jti string, _ *websocket.Conn) {
 			slog.Info("ws authenticated", "user_id", uid, "jti", jti)
 		},
-		Tokens: queries,  // Sprint 1-2: jti replay defense
-		Hub:    wsHub,     // Sprint 1 WP-5: broadcast hub
+		Tokens: queries, // Sprint 1-2: jti replay defense
+		Hub:    wsHub,   // Sprint 1 WP-5: broadcast hub
 		DispatchDeps: &wspkg.DispatchDeps{
 			// Sprint 1 WP-6: post-auth business-frame dispatch loop.
 			// Wired so room.subscribe / msg.send / room.unsubscribe

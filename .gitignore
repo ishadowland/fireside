@@ -21,6 +21,10 @@
 *.pem
 *.key
 config.local.yaml
+# Agent presets (issue #38) — local-only connection config incl. api tokens.
+# Never synced to GitHub; managed via /dashboard/agents (loopback-only).
+config/agents.local.json
+agents.local.json
 
 # Build artifacts
 /dist/

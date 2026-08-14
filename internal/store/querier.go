@@ -52,6 +52,13 @@ type Querier interface {
 	// Sprint 1 WP-1 (users.display_name)
 	UpdateUserDisplayName(ctx context.Context, arg UpdateUserDisplayNameParams) (int64, error)
 	GetDisplayName(ctx context.Context, id string) (string, error)
+
+	// Sprint 1-3 (room_agents)
+	GetRoomAgent(ctx context.Context, roomID string, agentID string) (RoomAgent, error)
+	ListRoomAgentsByRoom(ctx context.Context, roomID string) ([]RoomAgent, error)
+	UpsertRoomAgent(ctx context.Context, arg UpsertRoomAgentParams) error
+	DeleteRoomAgent(ctx context.Context, roomID string, agentID string) (int64, error)
+	DeleteRoomAgentsByRoom(ctx context.Context, roomID string) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

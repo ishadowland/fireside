@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/ishadowland/fireside/internal/agents"
 )
 
 func TestMain(m *testing.M) {
@@ -259,5 +262,155 @@ func TestLibJSExposesFiresideGlobal(t *testing.T) {
 		if !strings.Contains(w.Body.String(), kw) {
 			t.Errorf("lib.js missing helper %q", kw)
 		}
+	}
+}
+
+// ---- AI test-config endpoints (方式1 agents hook) --------------------------
+
+func newAITestRouter(t *testing.T) (*gin.Engine, *agents.Service) {
+	t.Helper()
+	svc := agents.NewService(nil, nil, nil, nil, nil)
+	r := gin.New()
+	Mount(r, Config{StubCode: "1234", Agents: svc})
+	return r, svc
+}
+
+func TestAIConfigGetBeforeSet(t *testing.T) {
+	r, _ := newAITestRouter(t)
+	w := doLoopback(r, http.MethodGet, "/v1/dashboard/ai-config")
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET ai-config = %d, want 200", w.Code)
+	}
+	var body struct {
+		Configured bool   `json:"configured"`
+		BaseURL    string `json:"base_url"`
+		Model      string `json:"model"`
+		HasKey     bool   `json:"has_key"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Configured {
+		t.Error("configured = true before SetConfig")
+	}
+	if body.HasKey {
+		t.Error("has_key = true before SetConfig")
+	}
+}
+
+func TestAIConfigSetAndGet(t *testing.T) {
+	r, _ := newAITestRouter(t)
+	// Set.
+	body, _ := json.Marshal(gin.H{
+		"base_url": "https://api.openai.com/v1/chat/completions/",
+		"api_key":  "sk-secret",
+		"model":    "gpt-4o-mini",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/dashboard/ai-config", bytes.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:54321"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST ai-config = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+
+	// Get must reflect configured, base_url (normalized, no /chat/completions),
+	// model, has_key — but NEVER the key itself.
+	w2 := doLoopback(r, http.MethodGet, "/v1/dashboard/ai-config")
+	if w2.Code != http.StatusOK {
+		t.Fatalf("GET ai-config = %d, want 200", w2.Code)
+	}
+	var resp struct {
+		Configured bool   `json:"configured"`
+		BaseURL    string `json:"base_url"`
+		Model      string `json:"model"`
+		HasKey     bool   `json:"has_key"`
+	}
+	if err := json.Unmarshal(w2.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !resp.Configured {
+		t.Error("configured = false after SetConfig")
+	}
+	if resp.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("base_url = %q, want normalized https://api.openai.com/v1", resp.BaseURL)
+	}
+	if resp.Model != "gpt-4o-mini" {
+		t.Errorf("model = %q, want gpt-4o-mini", resp.Model)
+	}
+	if !resp.HasKey {
+		t.Error("has_key = false after SetConfig with key")
+	}
+	if strings.Contains(w2.Body.String(), "sk-secret") {
+		t.Error("ai-config GET leaked the API key")
+	}
+}
+
+func TestAIConfigSetInvalid(t *testing.T) {
+	r, _ := newAITestRouter(t)
+	body, _ := json.Marshal(gin.H{"base_url": "", "model": ""})
+	req := httptest.NewRequest(http.MethodPost, "/v1/dashboard/ai-config", bytes.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:54321"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("POST invalid ai-config = %d, want 400", w.Code)
+	}
+}
+
+func TestAIPingUnconfigured(t *testing.T) {
+	r, _ := newAITestRouter(t)
+	w := doLoopback(r, http.MethodPost, "/v1/dashboard/ai-ping")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("ai-ping unconfigured = %d, want 503", w.Code)
+	}
+}
+
+func TestAIConfigEndpointsBlockedForRemote(t *testing.T) {
+	r, _ := newAITestRouter(t)
+	for _, p := range []string{
+		"/v1/dashboard/ai-config",
+		"/v1/dashboard/ai-ping",
+	} {
+		w := doRemote(r, http.MethodGet, p)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("remote GET %s = %d, want 404", p, w.Code)
+		}
+	}
+}
+
+func TestAIConfigWithoutAgentsWiring(t *testing.T) {
+	r := newTestRouter() // Config has no Agents
+	w := doLoopback(r, http.MethodGet, "/v1/dashboard/ai-config")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("GET ai-config without Agents = %d, want 503", w.Code)
+	}
+}
+
+func TestAIPingEndToEnd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	svc := agents.NewService(nil, nil, nil, nil, nil)
+	svc.SetConfig(&agents.Config{BaseURL: srv.URL, APIKey: "sk-test", Model: "gpt-4o-mini"})
+	r := gin.New()
+	Mount(r, Config{StubCode: "1234", Agents: svc})
+
+	w := doLoopback(r, http.MethodPost, "/v1/dashboard/ai-ping")
+	if w.Code != http.StatusOK {
+		t.Fatalf("ai-ping = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		OK        bool  `json:"ok"`
+		LatencyMs int64 `json:"latency_ms"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !resp.OK {
+		t.Error("ok = false")
 	}
 }

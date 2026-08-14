@@ -57,7 +57,7 @@
       const status = r.status || "active";
       const created = Fireside.fmtTime(r.created_at);
       return `<tr data-id="${Fireside.escapeHtml(r.id)}">
-        <td>${Fireside.escapeHtml(r.name || "")}</td>
+        <td><a class="room-link" href="/dashboard/rooms/${encodeURIComponent(r.id)}">${Fireside.escapeHtml(r.name || "")}</a></td>
         <td><span class="status-pill status-${Fireside.escapeHtml(status)}">${Fireside.escapeHtml(status)}</span></td>
         <td><code>${Fireside.escapeHtml((r.host_user_id || "").slice(0, 8))}…</code></td>
         <td>${r.max_participants ?? ""}</td>

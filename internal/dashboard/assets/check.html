@@ -23,6 +23,29 @@
     </header>
 
     <section class="card">
+      <h2>AI 接入配置（方式1 · 服务器端 agent 钩子）</h2>
+      <div class="ai-config">
+        <label class="ai-field">
+          <span>端点 URL（OpenAI 兼容）</span>
+          <input type="text" id="ai-base-url" placeholder="https://api.openai.com/v1" autocomplete="off">
+        </label>
+        <label class="ai-field">
+          <span>API Key</span>
+          <input type="password" id="ai-api-key" placeholder="sk-..." autocomplete="off">
+        </label>
+        <label class="ai-field">
+          <span>模型名</span>
+          <input type="text" id="ai-model" placeholder="gpt-4o-mini" autocomplete="off">
+        </label>
+        <div class="row">
+          <button type="button" id="ai-save-btn" class="primary">保存配置</button>
+          <button type="button" id="ai-ping-btn">测试连接</button>
+          <span class="status" id="ai-status">未保存</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
       <div class="row">
         <button id="run-btn" class="primary">运行全部检查</button>
         <span class="status" id="summary-status">未运行</span>

@@ -45,7 +45,7 @@ func NewService(q *store.Queries, log *slog.Logger) *Service {
 // authenticated context (auth.Middleware put it there).
 //
 // Sprint 1: status defaults to 'active' in DB; announcement defaults
-// to ''. No capacity check at the room level (Sprint 2 adds per-host
+// to ”. No capacity check at the room level (Sprint 2 adds per-host
 // cap). Returns ErrRoomNotFound never — CreateRoom can't fail with
 // "not found".
 func (s *Service) CreateRoom(ctx context.Context, hostUserID string, req CreateRoomRequest) (RoomView, error) {
@@ -90,7 +90,25 @@ func (s *Service) GetRoom(ctx context.Context, roomID string) (RoomView, []Parti
 		s.log.Error("GetRoom participants failed", "room_id", roomID, "err", err)
 		return RoomView{}, nil, err
 	}
-	return viewFromStore(room), participantViewsFromStore(parts), nil
+	views := participantViewsFromStore(parts)
+
+	// Append invited AI assistants so the 在场 list shows them alongside
+	// humans. Agents aren't Participant rows; they synthesize a view with
+	// StageState="agent" which the UI renders as an AI presence.
+	agents, err := s.q.ListRoomAgentsByRoom(ctx, roomID)
+	if err != nil {
+		s.log.Error("GetRoom agents failed", "room_id", roomID, "err", err)
+		return RoomView{}, nil, err
+	}
+	for _, a := range agents {
+		views = append(views, ParticipantView{
+			RoomID:     roomID,
+			UserID:     a.AgentID,
+			StageState: "agent",
+			JoinedAt:   a.CreatedAt,
+		})
+	}
+	return viewFromStore(room), views, nil
 }
 
 // ListActive returns up to limit active rooms (status='active'), newest
@@ -146,6 +164,11 @@ func (s *Service) EndRoom(ctx context.Context, actorUserID, roomID string) error
 		// already-ended since that's the only state that can transition
 		// out of active.
 		return ErrRoomEnded
+	}
+	// Best-effort cleanup: an ended room no longer hosts invited AI
+	// agents (room_agents rows). Failure here must not fail EndRoom.
+	if _, err := s.q.DeleteRoomAgentsByRoom(ctx, roomID); err != nil {
+		s.log.Warn("EndRoom: room_agents cleanup failed", "room_id", roomID, "err", err)
 	}
 	return nil
 }

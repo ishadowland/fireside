@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ishadowland/fireside/internal/agents"
 	"github.com/ishadowland/fireside/internal/loopback"
 )
 
@@ -21,6 +22,11 @@ var assets embed.FS
 // Config carries what the dashboard needs to drive the auto-login flow.
 type Config struct {
 	StubCode string // SMS_STUB_CODE from config; falls back to "1234" in auth
+	// Agents is the server-side agent hook service (方式1). When non-nil,
+	// the dashboard exposes the AI test-config endpoints (GET/POST
+	// /v1/dashboard/ai-config, POST .../ai-ping). nil disables the AI
+	// section (tests / when agents aren't wired).
+	Agents *agents.Service
 }
 
 // Mount registers the dashboard routes onto r.
@@ -32,6 +38,8 @@ func Mount(r *gin.Engine, cfg Config) {
 		// WP-8: lobby + chat pages.
 		g.GET("/rooms", serveAsset("assets/rooms.html"))
 		g.GET("/rooms/:id", serveAsset("assets/room.html"))
+		// Agent 管理器: persisted agent presets (issue #38).
+		g.GET("/agents", serveAsset("assets/agents.html"))
 		// Interface self-check page (end-to-end functional validation
 		// of every currently-supported REST + WS interface).
 		g.GET("/check", serveAsset("assets/check.html"))
@@ -45,6 +53,8 @@ func Mount(r *gin.Engine, cfg Config) {
 		cfgGroup.GET("/config", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"stub_code": cfg.StubCode})
 		})
+		registerAIConfigRoutes(cfgGroup, cfg.Agents)
+		registerAgentManagerRoutes(cfgGroup, cfg.Agents)
 	}
 }
 

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fireside — Agent 管理器</title>
+  <link rel="stylesheet" href="/dashboard/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <h1>Agent 管理器</h1>
+      <span class="badge">local-only · 预置接入配置</span>
+      <div class="actions">
+        <a href="/dashboard/">首页</a>
+        <span class="dot">·</span>
+        <a href="/dashboard/rooms">大厅</a>
+        <span class="dot">·</span>
+        <a href="/dashboard/check">自检</a>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>已保存的 Agent 预置</h2>
+      <table class="preset-list">
+        <thead>
+          <tr>
+            <th>名称</th>
+            <th>接入方式</th>
+            <th>地址</th>
+            <th>模型</th>
+            <th>Token</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="preset-tbody"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
+      </table>
+      <div class="status" id="preset-msg"></div>
+    </section>
+
+    <section class="card">
+      <h2 id="form-title">新建 Agent 预置</h2>
+      <form id="preset-form" class="preset-form">
+        <div class="form-row">
+          <div class="ai-field">
+            <label for="p-name">名称</label>
+            <input id="p-name" type="text" placeholder="例如: 壹号-OpenAI" required />
+          </div>
+          <div class="ai-field">
+            <label for="p-kind">接入方式</label>
+            <select id="p-kind">
+              <option value="openai">OpenAI 兼容 (chat/completions)</option>
+              <option value="simple">简单 API (直连)</option>
+              <option value="openclaw">OpenClaw 兼容 (/api/chat)</option>
+            </select>
+          </div>
+          <div class="ai-field">
+            <label for="p-model">模型</label>
+            <input id="p-model" type="text" placeholder="gpt-4o-mini" required />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="ai-field">
+            <label for="p-host">Host</label>
+            <input id="p-host" type="text" placeholder="api.openai.com" />
+          </div>
+          <div class="ai-field">
+            <label for="p-port">端口</label>
+            <input id="p-port" type="number" min="0" max="65535" value="443" />
+          </div>
+          <div class="ai-field" style="flex: 2;">
+            <label for="p-base-url">Base URL（可选，优先于 host:端口）</label>
+            <input id="p-base-url" type="text" placeholder="https://api.openai.com/v1" />
+          </div>
+        </div>
+        <div class="ai-field">
+          <label for="p-token">API Token / API Key（只写，不回显）</label>
+          <input id="p-token" type="password" placeholder="sk-…" />
+        </div>
+        <div class="ai-field">
+          <label for="p-prompt">提示词（该 agent 的默认 system prompt）</label>
+          <textarea id="p-prompt" maxlength="4000" placeholder="你是房间里的一个 AI 助手……"></textarea>
+        </div>
+        <div class="row">
+          <button type="submit" class="primary" id="save-btn">保存</button>
+          <button type="button" id="cancel-btn" hidden>取消编辑</button>
+          <span class="status" id="form-status"></span>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script src="/dashboard/static/lib.js"></script>
+  <script src="/dashboard/static/agents.js"></script>
+</body>
+</html>

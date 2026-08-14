@@ -139,6 +139,33 @@ input[type="text"]:focus, input[type="number"]:focus {
   border-color: var(--accent);
 }
 
+/* AI config card (check.html) */
+.ai-config {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ai-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ai-field input {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.ai-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 button {
   background: var(--panel);
   color: var(--text);
@@ -177,6 +204,11 @@ button.danger:hover:not(:disabled) { background: rgba(248, 81, 73, 0.1); }
 #rooms-table th { color: var(--muted); font-weight: normal; font-size: 11px; }
 #rooms-table .empty { color: var(--muted); text-align: center; padding: 24px; }
 #rooms-table .join-btn { padding: 4px 10px; font-size: 12px; }
+#rooms-table .room-link { color: var(--accent); text-decoration: none; }
+#rooms-table .room-link:hover { text-decoration: underline; }
+
+.cooldown-label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.row input[type="number"] { width: 72px; }
 
 .status-pill {
   font-size: 11px;
@@ -284,3 +316,45 @@ button.danger:hover:not(:disabled) { background: rgba(248, 81, 73, 0.1); }
 }
 .chat-input input { flex: 1; }
 .chat-actions { justify-content: space-between; align-items: center; }
+
+/* Agent 管理器 (agents.html) */
+.preset-list {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.preset-list th, .preset-list td {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+.preset-list th { color: var(--muted); font-weight: normal; font-size: 11px; }
+.preset-list .empty { color: var(--muted); text-align: center; padding: 24px; }
+.preset-list .hint { color: var(--muted); font-size: 12px; }
+.preset-form { display: flex; flex-direction: column; gap: 10px; }
+.preset-form .ai-field input, .preset-form .ai-field select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.preset-form .ai-field select option { background: var(--panel); }
+.preset-form textarea {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  min-height: 72px;
+  resize: vertical;
+}
+.preset-form .form-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.preset-form .form-row .ai-field { flex: 1; min-width: 120px; }
+#preset-msg { margin-top: 8px; }
