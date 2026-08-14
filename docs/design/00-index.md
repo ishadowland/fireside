@@ -17,6 +17,7 @@
 | 05 | Security Model | ⏳ pending | Auth, TLS, room access control, agent sandboxing |
 | 06 | Deployment | ⏳ pending | systemd unit, Nginx config, VPS provisioning |
 | 07 | Three-Sages Coalition (EVA MAGI) | 📝 drafted | MVP composite-agent design: D22/D23/D24/D25 — roles, R1→R2→R3→Synth protocol, voting threshold, room announcement |
+| 08 | Lobster 接入(方式2: Hermes / OpenClaw) | 🚧 Draft v0.1 | Backend driver 设计 — 会话路由、preset 扩展、与方式1 的复用边界、安全、落地计划 |
 
 ## Reference
 
