@@ -43,6 +43,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -104,6 +105,14 @@ type Config struct {
 	BaseURL string       // e.g. https://api.openai.com/v1 (may omit /chat/completions)
 	APIKey  string
 	Model   string
+	// AgentID is the backend agent name for openclaw/hermes (方式2). For
+	// openclaw it selects openclaw/<agent>; for hermes it is the profile /
+	// model name. Empty → cfg.Model is used verbatim.
+	AgentID string
+	// SessionKey is the stable backend session anchor (方式2). openclaw
+	// sends it as the OpenAI `user` field ("conv:..."), hermes as the
+	// X-Hermes-Session-Id header. Empty → stateless call.
+	SessionKey string
 }
 
 // AgentStateView is what GET /v1/rooms/:id/agents/:slot returns.
@@ -321,6 +330,7 @@ func (s *Service) PresetPing(ctx context.Context, id string) (int64, error) {
 		BaseURL: p.Endpoint(),
 		APIKey:  p.APIToken,
 		Model:   p.Model,
+		AgentID: p.AgentID,
 	}
 	start := time.Now()
 	if _, err := s.chat(ctx, &cfg, []chatMessage{{Role: "user", Content: "你好"}}); err != nil {
@@ -630,10 +640,12 @@ func (s *Service) resolveChatConfig(agent store.RoomAgent) (Config, string) {
 					prompt = defaultSystemPrompt
 				}
 				return Config{
-					Kind:    p.Kind,
-					BaseURL: p.Endpoint(),
-					APIKey:  p.APIToken,
-					Model:   p.Model,
+					Kind:       p.Kind,
+					BaseURL:    p.Endpoint(),
+					APIKey:     p.APIToken,
+					Model:      p.Model,
+					AgentID:    p.AgentID,
+					SessionKey: p.SessionKey,
 				}, prompt
 			}
 		}
@@ -887,6 +899,12 @@ func (s *Service) replyToRoom(roomID string, slot int) {
 		log.Debug("agents: no connection config (no preset, global unset)")
 		return
 	}
+	// 方式2 session anchor: unless a preset fixed a session key, derive a
+	// stable per-(room, slot) key so openclaw/hermes keep one backend
+	// session per room slot (no cross-room memory bleed).
+	if chatCfg.SessionKey == "" && (chatCfg.Kind == ProviderOpenClaw || chatCfg.Kind == ProviderHermes) {
+		chatCfg.SessionKey = roomID + ":" + strconv.Itoa(slot)
+	}
 	reply, err := s.chat(ctx, &chatCfg, buildChat(system, hist))
 	if err != nil {
 		log.Warn("agents: chat failed", "err", err)
@@ -943,6 +961,7 @@ type chatMessage struct {
 type chatRequest struct {
 	Model    string        `json:"model"`
 	Messages []chatMessage `json:"messages"`
+	User     string        `json:"user,omitempty"` // openclaw 方式2: stable session anchor "conv:<key>"
 }
 
 type chatResponse struct {
@@ -975,7 +994,14 @@ func buildChat(system string, hist []messages.MessageView) []chatMessage {
 }
 
 // chat calls the model endpoint for the configured provider kind. openai →
-// /chat/completions, simple → verbatim endpoint, openclaw → /api/chat.
+// /chat/completions, simple → verbatim endpoint, openclaw → /api/chat
+// (legacy) or /v1/chat/completions (gateway, when the base already points
+// at it), hermes → /chat/completions (方式2). For openclaw/hermes a
+// non-empty SessionKey anchors the call to a stable backend session:
+// openclaw sends it as the OpenAI `user` field ("conv:<key>") so the
+// Gateway derives a stable session; hermes sends it as the
+// X-Hermes-Session-Id header (only when an API key is configured, since
+// the header is gated on auth there).
 func (s *Service) chat(ctx context.Context, cfg *Config, msgs []chatMessage) (string, error) {
 	kind := cfg.Kind
 	if kind == "" {
@@ -985,7 +1011,12 @@ func (s *Service) chat(ctx context.Context, cfg *Config, msgs []chatMessage) (st
 	if endpoint == "" {
 		return "", errors.New("agents: missing base url")
 	}
-	body, err := json.Marshal(chatRequest{Model: cfg.Model, Messages: msgs})
+
+	reqBody := chatRequest{Model: backendModel(cfg), Messages: msgs}
+	if kind == ProviderOpenClaw && cfg.SessionKey != "" {
+		reqBody.User = "conv:" + cfg.SessionKey
+	}
+	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", err
 	}
@@ -997,6 +1028,9 @@ func (s *Service) chat(ctx context.Context, cfg *Config, msgs []chatMessage) (st
 	if cfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	}
+	if kind == ProviderHermes && cfg.SessionKey != "" && cfg.APIKey != "" {
+		req.Header.Set("X-Hermes-Session-Id", cfg.SessionKey)
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -1004,25 +1038,54 @@ func (s *Service) chat(ctx context.Context, cfg *Config, msgs []chatMessage) (st
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if kind == ProviderOpenClaw {
-		return parseOpenClawResponse(resp.StatusCode, resp.Body)
+	return parseResponse(kind, endpoint, resp.StatusCode, resp.Body)
+}
+
+// parseResponse picks the decoder for a provider kind. openclaw uses the
+// legacy {reply} shape unless the endpoint is the OpenAI-compatible
+// gateway surface (/v1/chat/completions), which answers
+// choices[].message.content like every other kind.
+func parseResponse(kind ProviderKind, endpoint string, status int, r io.Reader) (string, error) {
+	if kind == ProviderOpenClaw && !strings.HasSuffix(strings.TrimRight(endpoint, "/"), "/chat/completions") {
+		return parseOpenClawResponse(status, r)
 	}
-	return parseOpenAIResponse(resp.StatusCode, resp.Body)
+	return parseOpenAIResponse(status, r)
+}
+
+// backendModel resolves the effective model name for a call. For
+// openclaw/hermes (方式2) an AgentID selects the backend agent: openclaw →
+// "openclaw/<agent>", hermes → the agent/profile name. Empty AgentID falls
+// back to cfg.Model verbatim.
+func backendModel(cfg *Config) string {
+	if cfg.AgentID == "" {
+		return cfg.Model
+	}
+	switch cfg.Kind {
+	case ProviderOpenClaw:
+		return "openclaw/" + cfg.AgentID
+	case ProviderHermes:
+		return cfg.AgentID
+	}
+	return cfg.Model
 }
 
 // providerEndpoint resolves a base URL into the full chat endpoint for a
 // provider kind. openai appends /chat/completions (chatEndpoint), simple
-// uses the base verbatim, openclaw appends /api/chat.
+// uses the base verbatim, openclaw appends /api/chat (legacy) or keeps a
+// base that already ends in /chat/completions (gateway), hermes appends
+// /chat/completions like openai.
 func providerEndpoint(kind ProviderKind, base string) string {
 	switch kind {
 	case ProviderSimple:
 		return strings.TrimRight(base, "/")
 	case ProviderOpenClaw:
 		b := strings.TrimRight(base, "/")
-		if strings.HasSuffix(b, "/api/chat") {
+		if strings.HasSuffix(b, "/api/chat") || strings.HasSuffix(b, "/chat/completions") {
 			return b
 		}
 		return b + "/api/chat"
+	case ProviderHermes:
+		return chatEndpoint(base)
 	default:
 		return chatEndpoint(base)
 	}

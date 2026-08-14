@@ -338,6 +338,25 @@ substantive work is either:
    above, add the `keep_messages_on_end` retention worker,
    finish the display_name modal in the dashboard.
 
+## v0.3-agents 里程碑(2026-08-14)
+
+Tagged `v0.3-agents`(agent 里程碑,已 push)。包含:
+
+- ✅ **方式1 agent hook**(commit `a0e1b7e`,issue #38):invite/remove/mute/multi-slot/free-speech + Agent 管理器预置(openai/simple/openclaw,持久化到 gitignored 0600 `config/agents.local.json`,token write-only)。上游非 2xx 无 `error` 对象的 nil 守卫(#40)。
+- ✅ **admin API**(`d85e133`):loopback-only 强关房间/清记录 + 自检页。
+- ✅ **dashboard JWT `uid` claim 修复**(`d7e282f`):host 权限控制恢复。
+- ✅ **方式2 设计文档**(`8ac8a18`):`docs/design/08-lobster-openclaw-hermes.md` — Hermes/OpenClaw backend driver 规划(会话路由、preset 扩展、安全、落地计划),注册进 `docs/design/00-index.md`。
+
+### 方式2 P1(本次,未提交前 review 用)
+
+按设计文档 §8 P1 落地最小接入(小 diff,`openai`/`simple` 行为不变):
+
+- `presets.go`:`ProviderHermes` kind + `AgentID`/`SessionKey` 字段 + 校验(可打印 ASCII、OpenClaw 保留前缀 `subagent:`/`cron:`/`acp:` 拒绝、agent_id 仅 openclaw/hermes 可用)。
+- `service.go`:`Config` 加 `AgentID`/`SessionKey`;`chat()` 会话锚定 — openclaw 走 `user: "conv:<key>"`,hermes 走 `X-Hermes-Session-Id` header(仅配 API key 时);`providerEndpoint` hermes → `/chat/completions`,openclaw 识别 gateway 面(`/v1/chat/completions`)并复用 `parseOpenAIResponse`;`replyToRoom` 默认生成 `roomID:slot` 会话(跨房隔离)。
+- 测试:hermes 会话 header + agent 模型选择、openclaw gateway `conv:` 会话、validation/roundtrip、dashboard hermes 预置往返(router_test)。
+
+验证:本地 Postgres(5432)`go test -race -count=1 -p 1 ./...` 全绿(无 docker 时 testutil 回退需 `-p 1`);`golangci-lint run ./...` 0 issues(既有 `ai_config.go:82` S1017 非本次引入)。
+
 ## Open invitations
 
 The reviewer's three Sprint 1.5 push commits have been accepted

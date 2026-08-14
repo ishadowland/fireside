@@ -12,6 +12,7 @@
     openai: "OpenAI 兼容",
     simple: "简单 API",
     openclaw: "OpenClaw 兼容",
+    hermes: "Hermes Agent",
   };
 
   const els = {
@@ -26,6 +27,8 @@
     port: document.getElementById("p-port"),
     baseUrl: document.getElementById("p-base-url"),
     token: document.getElementById("p-token"),
+    agentId: document.getElementById("p-agent-id"),
+    sessionKey: document.getElementById("p-session-key"),
     prompt: document.getElementById("p-prompt"),
     saveBtn: document.getElementById("save-btn"),
     cancelBtn: document.getElementById("cancel-btn"),
@@ -79,7 +82,7 @@
         <td>${escapeHtml(p.name)}</td>
         <td>${escapeHtml(KINDS[p.kind] || p.kind)}</td>
         <td class="hint">${escapeHtml(p.endpoint || "")}</td>
-        <td class="hint">${escapeHtml(p.model || "")}</td>
+        <td class="hint">${escapeHtml(p.agent_id ? `${p.agent_id} → ` : "")}${escapeHtml(p.model || "")}</td>
         <td>${p.has_token ? "已设置" : "—"}</td>
         <td>
           <button data-act="edit" data-id="${escapeHtml(p.id)}">编辑</button>
@@ -96,6 +99,8 @@
     els.host.value = "";
     els.port.value = "443";
     els.baseUrl.value = p.endpoint || "";
+    els.agentId.value = p.agent_id || "";
+    els.sessionKey.value = p.session_key || "";
     els.prompt.value = p.system_prompt || "";
     els.token.value = "";
     // Try to split the resolved endpoint back into host:port for editing.
@@ -170,6 +175,8 @@
       api_token: els.token.value,
       model: els.model.value.trim(),
       system_prompt: els.prompt.value,
+      agent_id: els.agentId.value.trim(),
+      session_key: els.sessionKey.value.trim(),
     };
     els.saveBtn.disabled = true;
     try {

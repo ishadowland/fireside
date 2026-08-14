@@ -123,6 +123,12 @@ func TestPresetValidation(t *testing.T) {
 		{"port too big", func(in *PresetInput) { in.Port = 70000 }},
 		{"empty model", func(in *PresetInput) { in.Model = "" }},
 		{"prompt too long", func(in *PresetInput) { in.SystemPrompt = strings.Repeat("x", MaxSystemPromptLen+1) }},
+		{"session key too long", func(in *PresetInput) { in.SessionKey = strings.Repeat("k", MaxSessionKeyLen+1) }},
+		{"session key control char", func(in *PresetInput) { in.SessionKey = "conv\nx" }},
+		{"session key reserved prefix", func(in *PresetInput) { in.SessionKey = "subagent:x" }},
+		{"agent id on openai", func(in *PresetInput) { in.AgentID = "scribe" }},
+		{"agent id too long", func(in *PresetInput) { in.Kind = ProviderHermes; in.AgentID = strings.Repeat("a", MaxAgentIDLen+1) }},
+		{"agent id slash", func(in *PresetInput) { in.Kind = ProviderOpenClaw; in.AgentID = "scribe/deep" }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -132,6 +138,35 @@ func TestPresetValidation(t *testing.T) {
 				t.Errorf("Create(%s) err = nil, want error", c.name)
 			}
 		})
+	}
+}
+
+func TestPresetSessionFieldsRoundtrip(t *testing.T) {
+	s, _ := NewPresetStore("")
+	in := presetInput()
+	in.Kind = ProviderOpenClaw
+	in.AgentID = "scribe"
+	in.SessionKey = "conv:roomA:1"
+	p, err := s.Create(in)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if p.AgentID != "scribe" {
+		t.Errorf("AgentID = %q, want scribe", p.AgentID)
+	}
+	if p.SessionKey != "conv:roomA:1" {
+		t.Errorf("SessionKey = %q, want conv:roomA:1", p.SessionKey)
+	}
+	got, ok := s.Get(p.ID)
+	if !ok {
+		t.Fatal("preset missing after Create")
+	}
+	if got.AgentID != "scribe" || got.SessionKey != "conv:roomA:1" {
+		t.Errorf("roundtrip = %+v, want agent+session preserved", got)
+	}
+	views := s.List()
+	if len(views) != 1 || views[0].AgentID != "scribe" || views[0].SessionKey != "conv:roomA:1" {
+		t.Errorf("List view = %+v, want agent+session visible", views)
 	}
 }
 
@@ -204,8 +239,35 @@ func TestProviderEndpoint(t *testing.T) {
 	if got := providerEndpoint(ProviderOpenClaw, "http://h:8080/api/chat"); got != "http://h:8080/api/chat" {
 		t.Errorf("openclaw idempotent = %q, want verbatim", got)
 	}
+	if got := providerEndpoint(ProviderOpenClaw, "http://h:8080/v1/chat/completions"); got != "http://h:8080/v1/chat/completions" {
+		t.Errorf("openclaw gateway = %q, want verbatim", got)
+	}
+	if got := providerEndpoint(ProviderHermes, "http://h:8642/v1"); got != "http://h:8642/v1/chat/completions" {
+		t.Errorf("hermes = %q, want /chat/completions", got)
+	}
+	if got := providerEndpoint(ProviderHermes, "http://h:8642/"); got != "http://h:8642/chat/completions" {
+		t.Errorf("hermes bare = %q, want /chat/completions", got)
+	}
 	if got := providerEndpoint(ProviderOpenAI, "http://h/v1"); got != "http://h/v1/chat/completions" {
 		t.Errorf("openai = %q, want /chat/completions", got)
+	}
+}
+
+func TestBackendModel(t *testing.T) {
+	if got := backendModel(&Config{Kind: ProviderOpenClaw, Model: "openclaw/default"}); got != "openclaw/default" {
+		t.Errorf("no agent id = %q, want openclaw/default", got)
+	}
+	if got := backendModel(&Config{Kind: ProviderOpenClaw, AgentID: "scribe"}); got != "openclaw/scribe" {
+		t.Errorf("openclaw agent = %q, want openclaw/scribe", got)
+	}
+	if got := backendModel(&Config{Kind: ProviderHermes, AgentID: "analyst"}); got != "analyst" {
+		t.Errorf("hermes agent = %q, want analyst", got)
+	}
+	if got := backendModel(&Config{Kind: ProviderHermes, Model: "hermes-agent"}); got != "hermes-agent" {
+		t.Errorf("hermes no agent = %q, want hermes-agent", got)
+	}
+	if got := backendModel(&Config{Kind: ProviderOpenAI, AgentID: "junk"}); got != "" {
+		t.Errorf("openai agent must be ignored = %q, want empty model", got)
 	}
 }
 

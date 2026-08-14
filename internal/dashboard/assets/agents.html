@@ -51,7 +51,8 @@
             <select id="p-kind">
               <option value="openai">OpenAI 兼容 (chat/completions)</option>
               <option value="simple">简单 API (直连)</option>
-              <option value="openclaw">OpenClaw 兼容 (/api/chat)</option>
+              <option value="openclaw">OpenClaw 兼容 (/api/chat 或 gateway)</option>
+              <option value="hermes">Hermes Agent (方式2, /chat/completions)</option>
             </select>
           </div>
           <div class="ai-field">
@@ -76,6 +77,16 @@
         <div class="ai-field">
           <label for="p-token">API Token / API Key（只写，不回显）</label>
           <input id="p-token" type="password" placeholder="sk-…" />
+        </div>
+        <div class="form-row">
+          <div class="ai-field">
+            <label for="p-agent-id">Agent ID（可选，openclaw/hermes 专属，方式2）</label>
+            <input id="p-agent-id" type="text" placeholder="openclaw: scribe → openclaw/scribe；hermes: profile/model 名" />
+          </div>
+          <div class="ai-field" style="flex: 2;">
+            <label for="p-session-key">会话密钥（可选；留空 = 每房间自动 conv:&lt;room&gt;:&lt;slot&gt;）</label>
+            <input id="p-session-key" type="text" placeholder="conv:roomA:1" />
+          </div>
         </div>
         <div class="ai-field">
           <label for="p-prompt">提示词（该 agent 的默认 system prompt）</label>

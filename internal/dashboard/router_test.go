@@ -35,6 +35,15 @@ func doLoopback(r *gin.Engine, method, path string) *httptest.ResponseRecorder {
 	return w
 }
 
+// doLoopbackBody is doLoopback with a JSON request body.
+func doLoopbackBody(r *gin.Engine, method, path string, body []byte) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:54321"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
 // doRemote performs a request pretending to come from a non-loopback address.
 func doRemote(r *gin.Engine, method, path string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, nil)
@@ -441,5 +450,71 @@ func TestAIPingEndToEnd(t *testing.T) {
 	}
 	if !resp.OK {
 		t.Error("ok = false")
+	}
+}
+
+// TestAgentManagerHermesRoundtrip guards 方式2: a hermes preset created via
+// the loopback Agent 管理器 persists agent_id/session_key, and the list
+// view never leaks the api token.
+func TestAgentManagerHermesRoundtrip(t *testing.T) {
+	r, svc := newAITestRouter(t)
+	ps, err := agents.NewPresetStore("")
+	if err != nil {
+		t.Fatalf("NewPresetStore: %v", err)
+	}
+	svc.SetPresets(ps)
+	body, _ := json.Marshal(gin.H{
+		"name":        "Hermes 本地",
+		"kind":        "hermes",
+		"base_url":    "http://localhost:8642/v1",
+		"api_token":   "sk-hermes",
+		"model":       "hermes-agent",
+		"agent_id":    "analyst",
+		"session_key": "conv:roomA:1",
+		"system_prompt": "你是测试助手",
+	})
+	w := doLoopbackBody(r, http.MethodPost, "/v1/dashboard/agents", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST /agents = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var created agents.PresetView
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+	if created.Kind != agents.ProviderHermes {
+		t.Errorf("kind = %q, want hermes", created.Kind)
+	}
+	if created.AgentID != "analyst" {
+		t.Errorf("agent_id = %q, want analyst", created.AgentID)
+	}
+	if created.SessionKey != "conv:roomA:1" {
+		t.Errorf("session_key = %q, want conv:roomA:1", created.SessionKey)
+	}
+	if strings.Contains(w.Body.String(), "sk-hermes") {
+		t.Error("create response leaked the api token")
+	}
+
+	// List view: same fields visible, token masked.
+	w2 := doLoopback(r, http.MethodGet, "/v1/dashboard/agents")
+	if w2.Code != http.StatusOK {
+		t.Fatalf("GET /agents = %d, want 200", w2.Code)
+	}
+	if strings.Contains(w2.Body.String(), "sk-hermes") {
+		t.Error("list leaked the api token")
+	}
+	if !strings.Contains(w2.Body.String(), "analyst") || !strings.Contains(w2.Body.String(), "conv:roomA:1") {
+		t.Error("list missing agent_id/session_key")
+	}
+
+	// Invitation referencing the hermes preset resolves its config.
+	if svc == nil {
+		t.Fatal("svc nil")
+	}
+	view, err := svc.PresetGet(created.ID)
+	if err != nil {
+		t.Fatalf("PresetGet: %v", err)
+	}
+	if view.ID != created.ID {
+		t.Errorf("PresetGet id = %q, want %q", view.ID, created.ID)
 	}
 }

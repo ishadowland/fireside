@@ -175,6 +175,122 @@ func TestChatErrorStatus(t *testing.T) {
 	}
 }
 
+// TestChatHermesSessionHeader guards 方式2 (Lobster): a hermes preset must
+// call /v1/chat/completions, send the backend agent as the model, and only
+// attach X-Hermes-Session-Id when an API key is configured (the endpoint
+// gates session continuation on auth).
+func TestChatHermesSessionHeader(t *testing.T) {
+	got := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("path = %q, want /v1/chat/completions", r.URL.Path)
+		}
+		got["path"] = r.URL.Path
+		got["auth"] = r.Header.Get("Authorization")
+		got["session"] = r.Header.Get("X-Hermes-Session-Id")
+		var req chatRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		got["model"] = req.Model
+		got["user"] = req.User
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{"role": "assistant", "content": "hermes 报"},
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	s := NewService(nil, nil, nil, nil, nil)
+	cfg := &Config{
+		Kind:       ProviderHermes,
+		BaseURL:    srv.URL + "/v1",
+		APIKey:     "sk-hermes",
+		AgentID:    "analyst",
+		SessionKey: "roomA:1",
+	}
+	if _, err := s.chat(context.Background(), cfg, []chatMessage{{Role: "user", Content: "hi"}}); err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if got["session"] != "roomA:1" {
+		t.Errorf("X-Hermes-Session-Id = %q, want roomA:1", got["session"])
+	}
+	if got["model"] != "analyst" {
+		t.Errorf("model = %q, want analyst (AgentID)", got["model"])
+	}
+	if got["user"] != "" {
+		t.Errorf("user = %q, want empty for hermes", got["user"])
+	}
+
+	// Without an API key the session header must not be sent.
+	got2 := map[string]string{}
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got2["session"] = r.Header.Get("X-Hermes-Session-Id")
+		got2["auth"] = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{
+			"message": map[string]any{"role": "assistant", "content": "ok"},
+		}}})
+	}))
+	defer srv2.Close()
+	cfgNoKey := *cfg
+	cfgNoKey.BaseURL = srv2.URL + "/v1"
+	cfgNoKey.APIKey = ""
+	if _, err := s.chat(context.Background(), &cfgNoKey, []chatMessage{{Role: "user", Content: "hi"}}); err != nil {
+		t.Fatalf("chat (no key): %v", err)
+	}
+	if got2["session"] != "" {
+		t.Errorf("session without api key = %q, want empty", got2["session"])
+	}
+	if got2["auth"] != "" {
+		t.Errorf("auth without key = %q, want empty", got2["auth"])
+	}
+}
+
+// TestChatOpenClawGatewaySession guards the OpenClaw Gateway surface: a
+// session key becomes the OpenAI `user` field "conv:<key>", the endpoint is
+// /v1/chat/completions (not the legacy /api/chat), and the reply parses from
+// the standard choices[] shape.
+func TestChatOpenClawGatewaySession(t *testing.T) {
+	got := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got["path"] = r.URL.Path
+		var req chatRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		got["user"] = req.User
+		got["model"] = req.Model
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{"role": "assistant", "content": "gateway 报"},
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	s := NewService(nil, nil, nil, nil, nil)
+	cfg := &Config{
+		Kind:       ProviderOpenClaw,
+		BaseURL:    srv.URL + "/v1/chat/completions",
+		APIKey:     "sk-oc",
+		AgentID:    "scribe",
+		SessionKey: "roomA:1",
+	}
+	reply, err := s.chat(context.Background(), cfg, []chatMessage{{Role: "user", Content: "hi"}})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if got["user"] != "conv:roomA:1" {
+		t.Errorf("user = %q, want conv:roomA:1", got["user"])
+	}
+	if got["model"] != "openclaw/scribe" {
+		t.Errorf("model = %q, want openclaw/scribe", got["model"])
+	}
+	if reply != "gateway 报" {
+		t.Errorf("reply = %q, want gateway 报 (choices[] parse)", reply)
+	}
+}
+
 func TestPing(t *testing.T) {
 	srv := fakeChatServer(t)
 	defer srv.Close()

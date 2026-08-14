@@ -40,13 +40,32 @@ const (
 	// ProviderSimple is a bare chat endpoint using the same JSON shape,
 	// called verbatim (no /chat/completions appended).
 	ProviderSimple ProviderKind = "simple"
-	// ProviderOpenClaw is an OpenClaw-compatible /api/chat endpoint;
-	// request {model, messages}, response {reply}.
+	// ProviderOpenClaw is an OpenClaw-compatible endpoint. For the legacy
+	// /api/chat surface this is request {model, messages} → {reply}; when a
+	// session key is set, the request carries an OpenAI-style `user` field so
+	// the OpenClaw Gateway derives a stable agent session (方式2).
 	ProviderOpenClaw ProviderKind = "openclaw"
+	// ProviderHermes is a Hermes Agent (Nous) backend — an OpenAI-compatible
+	// /v1/chat/completions endpoint with session continuity via the
+	// X-Hermes-Session-Id header (方式2).
+	ProviderHermes ProviderKind = "hermes"
 )
 
 // ValidProviderKinds lists the selectable kinds in UI order.
-var ValidProviderKinds = []ProviderKind{ProviderOpenAI, ProviderSimple, ProviderOpenClaw}
+var ValidProviderKinds = []ProviderKind{ProviderOpenAI, ProviderSimple, ProviderOpenClaw, ProviderHermes}
+
+// MaxSessionKeyLen caps a fixed preset session key. When the key is empty,
+// Fireside auto-generates "conv:<room_id>:<slot>" for OpenClaw / Hermes
+// (方式2) so different rooms never share one backend session.
+const MaxSessionKeyLen = 128
+
+// MaxAgentIDLen caps the backend agent name (openclaw/hermes, 方式2).
+const MaxAgentIDLen = 64
+
+// openclawReservedSessionPrefixes are OpenClaw Gateway session-key
+// namespaces reserved for internal use; a caller-supplied key may not use
+// them (rejected upstream with 400 invalid_request_error, so reject early).
+var openclawReservedSessionPrefixes = []string{"subagent:", "cron:", "acp:"}
 
 // validProvider reports whether kind is a known provider kind.
 func validProvider(k ProviderKind) bool {
@@ -69,6 +88,8 @@ type Preset struct {
 	APIToken     string       `json:"api_token"`
 	Model        string       `json:"model"`
 	SystemPrompt string       `json:"system_prompt,omitempty"`
+	AgentID      string       `json:"agent_id,omitempty"`   // backend agent name (openclaw/hermes, 方式2)
+	SessionKey   string       `json:"session_key,omitempty"` // fixed backend session key (方式2, empty=auto conv:<room>:<slot>)
 	CreatedAt    time.Time    `json:"created_at"`
 }
 
@@ -100,6 +121,8 @@ type PresetInput struct {
 	APIToken     string       `json:"api_token"`
 	Model        string       `json:"model"`
 	SystemPrompt string       `json:"system_prompt"`
+	AgentID      string       `json:"agent_id"`
+	SessionKey   string       `json:"session_key"`
 }
 
 // validate performs input validation, mirroring the invite prompt cap.
@@ -125,6 +148,56 @@ func (in *PresetInput) validate() error {
 	if len(in.SystemPrompt) > MaxSystemPromptLen {
 		return fmt.Errorf("preset: 提示词超过 %d 字符上限", MaxSystemPromptLen)
 	}
+	if err := validateSessionKey(in.SessionKey); err != nil {
+		return err
+	}
+	if err := validateAgentID(in.Kind, in.AgentID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateSessionKey validates an optional fixed backend session key.
+// Empty is allowed (Fireside auto-generates conv:<room_id>:<slot>).
+func validateSessionKey(key string) error {
+	if key == "" {
+		return nil
+	}
+	if len(key) > MaxSessionKeyLen {
+		return fmt.Errorf("preset: 会话密钥超过 %d 字符上限", MaxSessionKeyLen)
+	}
+	for _, r := range key {
+		if r < 0x21 || r > 0x7e {
+			return errors.New("preset: 会话密钥只能包含可打印 ASCII 字符")
+		}
+	}
+	for _, p := range openclawReservedSessionPrefixes {
+		if strings.HasPrefix(key, p) {
+			return fmt.Errorf("preset: 会话密钥不能使用 OpenClaw 保留前缀 %q", p)
+		}
+	}
+	return nil
+}
+
+// validateAgentID validates the optional backend agent name for
+// openclaw/hermes kinds (方式2). Empty is allowed — the preset model is
+// then used as the backend agent selector.
+func validateAgentID(kind ProviderKind, agentID string) error {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil
+	}
+	if kind != ProviderOpenClaw && kind != ProviderHermes {
+		return errors.New("preset: agent_id 仅 openclaw/hermes 接入方式可用")
+	}
+	if len(agentID) > MaxAgentIDLen {
+		return fmt.Errorf("preset: agent_id 超过 %d 字符上限", MaxAgentIDLen)
+	}
+	for _, r := range agentID {
+		if r < 0x21 || r > 0x7e || r == '/' || r == ':' {
+			return errors.New("preset: agent_id 只能包含可打印 ASCII 字符(不含 / 与 :)")
+		}
+	}
 	return nil
 }
 
@@ -137,6 +210,8 @@ type PresetView struct {
 	HasToken     bool         `json:"has_token"`
 	Model        string       `json:"model"`
 	SystemPrompt string       `json:"system_prompt"`
+	AgentID      string       `json:"agent_id"`
+	SessionKey   string       `json:"session_key"`
 	CreatedAt    time.Time    `json:"created_at"`
 }
 
@@ -149,6 +224,8 @@ func presetView(p Preset) PresetView {
 		HasToken:     p.APIToken != "",
 		Model:        p.Model,
 		SystemPrompt: p.SystemPrompt,
+		AgentID:      p.AgentID,
+		SessionKey:   p.SessionKey,
 		CreatedAt:    p.CreatedAt,
 	}
 }
@@ -268,6 +345,8 @@ func (s *PresetStore) Create(in PresetInput) (Preset, error) {
 		APIToken:     in.APIToken,
 		Model:        strings.TrimSpace(in.Model),
 		SystemPrompt: in.SystemPrompt,
+		AgentID:      strings.TrimSpace(in.AgentID),
+		SessionKey:   in.SessionKey,
 		CreatedAt:    time.Now().UTC(),
 	}
 	s.presets[p.ID] = p
@@ -299,6 +378,8 @@ func (s *PresetStore) Update(id string, in PresetInput) (Preset, error) {
 	p.BaseURL = strings.TrimSpace(in.BaseURL)
 	p.Model = strings.TrimSpace(in.Model)
 	p.SystemPrompt = in.SystemPrompt
+	p.AgentID = strings.TrimSpace(in.AgentID)
+	p.SessionKey = in.SessionKey
 	if strings.TrimSpace(in.APIToken) != "" {
 		p.APIToken = in.APIToken
 	}
