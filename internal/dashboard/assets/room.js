@@ -582,10 +582,11 @@
     try {
       const r = await Fireside.login(TEST_PHONE);
       token = r.token;
-      // Decode user_id (display only).
+      // Decode user_id (display only). JWT claim is `uid` (ADR-0014);
+      // `sub` is the constant "fireside-user" and must not be used.
       try {
         const payload = JSON.parse(atob(token.split(".")[1]));
-        meId = payload.user_id || payload.sub || null;
+        meId = payload.uid || payload.user_id || null;
       } catch { /* ignore */ }
       els.meId.textContent = meId || "(?)";
       await ensureOnStage();

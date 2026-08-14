@@ -265,6 +265,35 @@ func TestLibJSExposesFiresideGlobal(t *testing.T) {
 	}
 }
 
+// TestDashboardJSDecodesUidClaim guards the host-control bug: the JWT
+// carries the user id in the `uid` claim (ADR-0014), while `sub` is the
+// constant "fireside-user". If a page decodes `.sub` as the user id,
+// hostUserId !== meId forever and host-only controls (在场 移除 AI 助手,
+// agent invite/mute, free-speech) never render.
+func TestDashboardJSDecodesUidClaim(t *testing.T) {
+	r := newTestRouter()
+	for _, asset := range []string{"room.js", "rooms.js", "check.js"} {
+		w := doLoopback(r, http.MethodGet, "/dashboard/static/"+asset)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200", asset, w.Code)
+		}
+		body := w.Body.String()
+		if strings.Contains(body, "payload.user_id || payload.sub") {
+			t.Errorf("%s still falls back to `sub` (constant fireside-user) — host checks will fail", asset)
+		}
+		switch asset {
+		case "room.js", "rooms.js":
+			if !strings.Contains(body, "payload.uid") {
+				t.Errorf("%s must read the JWT `uid` claim (payload.uid)", asset)
+			}
+		case "check.js":
+			if !strings.Contains(body, ".uid") {
+				t.Errorf("check.js must decode the JWT `uid` claim")
+			}
+		}
+	}
+}
+
 // ---- AI test-config endpoints (方式1 agents hook) --------------------------
 
 func newAITestRouter(t *testing.T) (*gin.Engine, *agents.Service) {

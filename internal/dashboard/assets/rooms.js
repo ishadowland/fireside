@@ -126,10 +126,11 @@
       const r = await Fireside.login(TEST_PHONE);
       token = r.token;
       meId = "(see localStorage)";
-      // Decode JWT payload for user_id (no verify — display only).
+      // Decode JWT payload for user_id (no verify — display only). The
+      // claim is `uid` (ADR-0014); `sub` is the constant "fireside-user".
       try {
         const payload = JSON.parse(atob(token.split(".")[1]));
-        meId = payload.user_id || payload.sub || "?";
+        meId = payload.uid || payload.user_id || "?";
       } catch { /* ignore */ }
       els.meId.textContent = meId;
       await listRooms();

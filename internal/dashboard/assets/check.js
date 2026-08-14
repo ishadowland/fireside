@@ -115,7 +115,7 @@
   }
 
   function decodeUid(token) {
-    try { return JSON.parse(atob(token.split(".")[1])).user_id || null; }
+    try { return JSON.parse(atob(token.split(".")[1])).uid || null; }
     catch { return null; }
   }
 
